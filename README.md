@@ -113,4 +113,8 @@ drawing open in your browser.
 
 ## Author
 
-Created by [Abhideep Ghosh](https://www.linkedin.com/in/abhideep-ghosh/).
+Zenbook started as a wish for a quieter place to think: somewhere to sketch an idea,
+jot down why it matters, and find it again months later, with no accounts, no clutter
+and nothing between you and your notes.
+
+Created with ❤️ by [Abhideep Ghosh](https://www.linkedin.com/in/abhideep-ghosh/).
