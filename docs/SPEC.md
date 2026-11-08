@@ -1,5 +1,44 @@
 # Zenbook v1 — Build Plan
 
+## Status: v1 implemented (2026-11-08)
+
+All six phases are built. These notes record where the build differs from the plan
+below, and what was measured. Releasing is described in [RELEASING.md](RELEASING.md).
+
+**Measured** (Windows 11, Electron software rendering; GPU machines are faster):
+
+| Target | Result |
+| --- | --- |
+| Window visible | 0.5–0.8 s after launch (packaged build: 0.7 s) |
+| Open a 2,000-element page | 0.29–0.33 s warm, 0.55–0.6 s cold, in a 1,000-page library |
+| Search over 1,000 pages | 2 ms including the IPC round trip |
+| Renderer entry chunk | 222 KB (React 19 alone is ~200 KB); Excalidraw and CodeMirror load as separate chunks |
+| `app.asar` | 24 MB, of which 13 MB is Excalidraw's CJK handwriting font (Xiaolai), kept so Chinese, Japanese and Korean text draws offline |
+
+**Changes found while building:**
+
+- **File watching uses Node's recursive `fs.watch`, not chokidar.** chokidar opens a handle on
+  every folder, and Windows then refuses to rename a folder whose subfolders are open: renaming a
+  Space failed with `EPERM` (in Zenbook and in Explorer). `fs.watch` holds one handle on the
+  library root, and it's one dependency fewer.
+- **Big libraries.** With software rendering, a 1,000-page sidebar made every canvas draw
+  ~40 ms per element (75 s to open a 2,000-element page): the tall list enlarged the
+  document's paint layer. Fix: `contain: strict` on the tree and notes scrollers (0.4 s).
+  The tree is also virtualised (rows outside the view aren't rendered).
+- **Fonts offline.** `EXCALIDRAW_ASSET_PATH` is set in the entry file, before the Excalidraw
+  chunk is imported. Excalidraw always lists its CDN as a last fallback; the CSP blocks it,
+  which logs harmless console errors while the local fonts load fine.
+- **`app://` MIME types.** `net.fetch` of local files returns octet-stream for fonts and wasm,
+  so the protocol sets `font/woff2` and `application/wasm`. The CSP allows
+  `'wasm-unsafe-eval'` (WebAssembly only, for Excalidraw's export font subsetting).
+- **IPC ordering.** An `invoke` reply can arrive before the tree event the same call
+  triggered, so a page created a moment ago opens once its tree arrives (`pendingPageId`).
+- **External notes.** A notes file created or deleted by another app reloads its page;
+  Zenbook's own deletions are remembered so they never look external.
+- **Muted text** is `#6F6C66` (the plan's `#8A877F` failed its own 4.5:1 contrast rule).
+- **Not yet verified:** CI on macOS and Linux, signing and notarisation, updating between
+  two published releases, and a hands-on check on a real Mac.
+
 ## Context
 
 The repo is empty apart from `PLAN.md`. The goal is a minimal, beautiful, calm notebook where every page is an Excalidraw canvas with a Markdown notes panel. It must run on Windows and macOS (Linux is a bonus), be fast, and avoid bloat and over-engineering. It will be **open source on GitHub, used by the public and updated continuously**.
