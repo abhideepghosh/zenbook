@@ -1,0 +1,77 @@
+/* Design tokens. Main-process copies of --bg and --text live in src/shared/theme.ts. */
+
+:root {
+  color-scheme: light dark;
+
+  /* Paper and ink */
+  --bg: #fbfaf8;
+  --surface: #f4f3f0;
+  --text: #24231f;
+  --text-muted: #6f6c66; /* 4.7:1 on --bg, 4.5:1 on --surface */
+  --text-faint: #b5b2aa; /* decorative only: markers, hints */
+  --line: #e7e5e0;
+  --hover: rgb(36 35 31 / 0.05);
+  --active: rgb(36 35 31 / 0.08);
+
+  /* Space accents: used only for the active page bar, the Space dot and tool highlight */
+  --accent-sage: #7c9a82;
+  --accent-clay: #c07a5a;
+  --accent-slate: #6b7f99;
+  --accent-sand: #b89b5e;
+  --accent-plum: #8f6f9a;
+  --accent-ocean: #4f8a9b;
+  --accent-moss: #7a8450;
+  --accent-rose: #b9737e;
+  --accent: var(--accent-sage);
+
+  /* Type: the system's own UI font on every OS, nothing bundled */
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, Ubuntu,
+    Cantarell, 'Noto Sans', sans-serif;
+  --text-ui: 13px;
+  --leading-ui: 20px;
+  --text-label: 11px;
+  --text-title: 20px;
+  --text-notes: 15px;
+  --leading-notes: 1.65;
+
+  /* 8 px grid with 4 px half-steps */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius: 6px;
+  --radius-lg: 8px;
+
+  /* Layout */
+  --strip-height: 40px;
+  --sidebar-width: 248px;
+  --notes-width: 340px;
+  /* Width of the Windows caption buttons (0 elsewhere), from the Window Controls Overlay. */
+  --wco-inset: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration: 140ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a19;
+    --surface: #201f1e;
+    --text: #e9e7e2;
+    --text-muted: #9a978f; /* 6.0:1 on --bg */
+    --text-faint: #6c6a64;
+    --line: #2e2d2b;
+    --hover: rgb(233 231 226 / 0.05);
+    --active: rgb(233 231 226 / 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration: 0ms;
+  }
+}

@@ -1,0 +1,210 @@
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--notes-width);
+  height: 100%;
+}
+
+/* ---------- Title strip (the window's title bar) ---------- */
+
+.strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--strip-height);
+  padding: 0 var(--space-3);
+  -webkit-app-region: drag;
+}
+
+.strip button {
+  -webkit-app-region: no-drag;
+}
+
+:global([data-platform='darwin']) .sidebarStrip {
+  padding-left: 80px; /* room for the traffic lights */
+}
+
+.notesStrip {
+  padding-right: var(--wco-inset);
+}
+
+/* ---------- Sidebar ---------- */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+.space {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.space:hover {
+  background: var(--hover);
+}
+
+.spaceDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.spaceName {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  margin: var(--space-1) var(--space-2) var(--space-3);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.search:hover {
+  background: var(--hover);
+}
+
+.kbd {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--text-label);
+  letter-spacing: 0.02em;
+}
+
+.empty {
+  padding: var(--space-2) var(--space-4);
+  color: var(--text-muted);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: var(--space-2);
+}
+
+.ghost {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.ghost:hover,
+.iconButton:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.iconButton {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+/* ---------- Canvas column ---------- */
+
+.center {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.centerStrip {
+  justify-content: space-between;
+}
+
+.breadcrumb {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.separator {
+  color: var(--text-faint);
+}
+
+.current {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+}
+
+.canvas {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+
+.hint {
+  color: var(--text-faint);
+}
+
+/* ---------- Notes column ---------- */
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+}
+
+.notesBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+}
+
+.title {
+  font-size: var(--text-title);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* Below 1200 px the notes panel will become an overlay (Phase 4); for now it hides. */
+@media (max-width: 1199px) {
+  .app {
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  }
+
+  .notes {
+    display: none;
+  }
+
+  .centerStrip {
+    padding-right: calc(var(--wco-inset) + var(--space-3));
+  }
+}

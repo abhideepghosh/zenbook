@@ -1,0 +1,13 @@
+node_modules/
+out/
+dist/
+coverage/
+test-results/
+playwright-report/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.env*
+# copied from node_modules at build time (Phase 3)
+src/renderer/public/fonts/

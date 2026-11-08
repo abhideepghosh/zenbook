@@ -1,0 +1,55 @@
+# Packaging config. Installers and the release pipeline are completed in Phase 6.
+appId: io.github.abhideepghosh.zenbook
+productName: Zenbook
+copyright: Copyright © 2026 Abhideep Ghosh
+
+directories:
+  output: dist
+  buildResources: build
+
+# Everything runtime is bundled into out/ by electron-vite, so no node_modules ship.
+files:
+  - out/**
+  - package.json
+asar: true
+
+# Keep only English Chromium locales (saves ~40 MB unpacked on Windows and Linux).
+electronLanguages: [en, en-US]
+
+# Lock down the Electron binary itself. Verified against a packaged build in Phase 6.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  # The renderer is served from app://, so file:// pages need no extra powers.
+  grantFileProtocolExtraPrivileges: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+nsis:
+  oneClick: true
+  perMachine: false
+
+# Per-architecture builds (never universal) keep each download half the size.
+mac:
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+
+linux:
+  category: Office
+  target: [AppImage, deb]
+
+publish:
+  provider: github
+  owner: abhideepghosh
+  repo: zenbook
