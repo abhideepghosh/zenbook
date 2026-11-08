@@ -1,12 +1,14 @@
 import { join } from 'node:path'
 import { app, type BrowserWindow } from 'electron'
-import { registerIpc } from './ipc'
+import { applyTheme, registerIpc } from './ipc'
 import { installDevShortcuts, installMenu } from './menu'
 import { perf } from './perf'
 import { handleAppProtocol, registerAppScheme } from './protocol'
 import { hardenSecurity } from './security'
-import { loadState } from './state'
-import { createMainWindow } from './window'
+import { Session } from './session'
+import { StateStore } from './state'
+import { createUpdates } from './updater'
+import { createMainWindow, flushRenderer } from './window'
 
 // Tests and fixture runs get an isolated profile. Ignored in packaged builds.
 // Must run before the single-instance lock, which is keyed on userData.
@@ -20,9 +22,18 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   let mainWindow: BrowserWindow | null = null
+  const store = new StateStore(join(app.getPath('userData'), 'state.json'))
+  const send = (channel: string, ...args: unknown[]) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args)
+  }
+  const session = new Session(store, send)
+  const updates = createUpdates(store, () => mainWindow)
+
+  // Start reading the library straight away, in parallel with creating the window.
+  void session.status()
 
   const openWindow = (): void => {
-    const win = createMainWindow(loadState())
+    const win = createMainWindow(store)
     installDevShortcuts(win)
     win.on('closed', () => {
       mainWindow = null
@@ -45,12 +56,31 @@ if (!app.requestSingleInstanceLock()) {
     if (app.isReady() && !mainWindow) openWindow()
   })
 
+  // Never lose a stroke: save the page, finish pending deletes and writes, then quit.
+  let shutDown = false
+  app.on('before-quit', (event) => {
+    if (shutDown) return
+    event.preventDefault()
+    void (async () => {
+      try {
+        if (mainWindow) await flushRenderer(mainWindow)
+        await session.close()
+      } finally {
+        store.saveNow()
+        shutDown = true
+        app.quit()
+      }
+    })()
+  })
+
   void app.whenReady().then(() => {
     perf('app ready')
+    applyTheme(store.data.prefs.theme)
     hardenSecurity()
     handleAppProtocol(join(__dirname, '../renderer'))
     installMenu()
-    registerIpc()
+    registerIpc({ session, store, updates, window: () => mainWindow })
     openWindow()
+    updates.start()
   })
 }
