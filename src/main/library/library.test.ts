@@ -1,7 +1,9 @@
 import {
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -206,6 +208,74 @@ describe('Library: delete with undo', () => {
     await lib.commitAllRemovals()
     expect(readdirSync(join(root, '.trash'))[0]).toMatch(/Temp$/)
   })
+
+  it('brings an item back, with a notice, when it cannot be trashed at all', async () => {
+    const lib = await Library.open(root, {
+      trash: async () => {
+        throw new Error('no trash here')
+      },
+    })
+    writeFileSync(join(root, '.trash'), 'a file where the fallback folder should go')
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    const s = await lib.create('space', null, 'Temp')
+    await lib.remove(s)
+    expect(lib.tree().spaces).toEqual([])
+    await lib.commitAllRemovals()
+    expect(lib.tree().spaces.map((x) => x.name)).toEqual(['Temp'])
+    expect(existsSync(join(root, 'Temp'))).toBe(true)
+    expect(notices).toEqual([
+      expect.stringMatching(/^Couldn’t delete “Temp”: .*back in the sidebar/),
+    ])
+  })
+
+  // Windows refuses to move a folder while anything inside it is open. Handing such a
+  // folder to the Recycle Bin pops up an "administrator permission" dialog, so it
+  // must never get that far.
+  it.runIf(process.platform === 'win32')(
+    'never hands a locked Space to the OS trash',
+    async () => {
+      const { lib, space } = await seeded()
+      const notices: string[] = []
+      lib.on('notice', (m) => notices.push(m))
+      const fd = openSync(join(root, 'Work', 'Distributed Systems', 'Lecture 1.excalidraw'), 'r')
+      try {
+        await lib.remove(space)
+        await lib.commitAllRemovals()
+      } finally {
+        closeSync(fd)
+      }
+      expect(trashed).toEqual([])
+      expect(lib.tree().spaces.map((x) => x.name)).toEqual(['Work'])
+      expect(readdirSync(root).sort()).toEqual(['Work', 'zenbook.json'])
+      expect(notices).toEqual([expect.stringMatching(/open in another program/)])
+
+      // Once it's closed, deleting works.
+      await lib.remove(space)
+      await lib.commitAllRemovals()
+      expect(trashed.map((p) => p.split(/[\\/]/).pop())).toEqual(['Work'])
+      expect(lib.tree().spaces).toEqual([])
+    },
+    15_000,
+  )
+
+  it.runIf(process.platform === 'win32')(
+    'explains a rename that another program blocks',
+    async () => {
+      const { lib, space } = await seeded()
+      const fd = openSync(join(root, 'Work', 'Distributed Systems', 'Lecture 1.excalidraw'), 'r')
+      try {
+        await expect(lib.rename(space, 'Job')).rejects.toThrow(
+          /“Work” is in use by another program/,
+        )
+      } finally {
+        closeSync(fd)
+      }
+      await lib.rename(space, 'Job')
+      expect(lib.tree().spaces[0]?.name).toBe('Job')
+    },
+    15_000,
+  )
 })
 
 describe('Library: pages, notes and assets', () => {

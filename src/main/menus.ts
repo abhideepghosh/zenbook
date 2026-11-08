@@ -42,11 +42,13 @@ export function showMenu(
   const sep: MenuItemConstructorOptions = { type: 'separator' }
   const template: MenuItemConstructorOptions[] = []
   const found = lib && id ? find(lib.model, id) : null
+  // The visible tree, so Spaces and chapters waiting out their undo window stay hidden.
+  const spaces = lib?.tree().spaces ?? []
 
   if (kind === 'page' && found?.kind === 'page') {
     const isPinned = found.space.pinned.includes(found.page.id)
     const moveTargets: MenuItemConstructorOptions[] = []
-    for (const space of lib!.model.spaces) {
+    for (const space of spaces) {
       if (moveTargets.length) moveTargets.push(sep)
       moveTargets.push({ label: space.name, enabled: false })
       for (const chapter of space.chapters) {
@@ -73,7 +75,7 @@ export function showMenu(
       item('Rename', 'rename', { accelerator: 'F2', registerAccelerator: false }),
       {
         label: 'Move to Space',
-        submenu: lib!.model.spaces.map((s) =>
+        submenu: spaces.map((s) =>
           item(s.name, `move:${s.id}`, { enabled: s.id !== found.space.id }),
         ),
       },
@@ -84,7 +86,7 @@ export function showMenu(
     )
   } else if (kind === 'spaces' || kind === 'space') {
     const current = found?.kind === 'space' ? found.space : null
-    for (const [i, space] of (lib?.model.spaces ?? []).entries()) {
+    for (const [i, space] of spaces.entries()) {
       template.push(
         item(space.name, `switch:${space.id}`, {
           type: 'radio',

@@ -6,7 +6,7 @@ import { flushAll, handleExternalChange } from './editors'
 import { installShortcuts } from './keys'
 import Palette from './palette/Palette'
 import Sidebar from './sidebar/Sidebar'
-import { get, set, useStore } from './store'
+import { get, set, showToast, useStore } from './store'
 import { findSpace, firstPage, locatePage } from './tree'
 import { Banner, Toast } from './ui/Overlays'
 import { ResizeHandle } from './ui/ResizeHandle'
@@ -51,6 +51,7 @@ export function App() {
     const offs = [
       installShortcuts(),
       window.zenbook.library.onTree(applyTree),
+      window.zenbook.library.onNotice((message) => showToast({ message }, 9000)),
       window.zenbook.page.onExternalChange((id) => void handleExternalChange(id)),
       window.zenbook.app.onFlush(flushAll),
       window.zenbook.app.onUpdate((update) => set({ update })),

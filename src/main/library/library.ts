@@ -1,9 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { copyFile, mkdir, readdir, readFile, rename, stat } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { copyFile, mkdir, readdir, readFile, stat } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import type { Accent, AssetFile, NodeKind, PageData, Tree } from '../../shared/api'
-import { exists, fingerprint, readText, renameWithRetry, WriteQueue } from './fsx'
+import {
+  describeLockError,
+  exists,
+  fingerprint,
+  isLockError,
+  readText,
+  renameWithRetry,
+  WriteQueue,
+} from './fsx'
 import {
   ASSETS_DIR,
   CHAPTER_FILE,
@@ -39,6 +47,8 @@ export interface LibraryEvents {
   /** A page's scene or notes were saved or removed; `text` is the drawing text if known. */
   pageSaved: [id: string]
   pageRemoved: [id: string]
+  /** Something the user should hear about that didn't come back from their own request. */
+  notice: [message: string]
 }
 
 const UNDO_WINDOW_MS = 6000
@@ -143,6 +153,12 @@ export class Library extends EventEmitter<LibraryEvents> {
     const f = this.get(id)
     if (f.kind !== 'space') throw new Error(`Not a space: ${id}`)
     return f
+  }
+
+  private nameOf(f: Found): string {
+    if (f.kind === 'space') return f.space.name
+    if (f.kind === 'chapter') return f.chapter.name
+    return f.page.name
   }
 
   private writeLibraryJson() {
@@ -302,35 +318,42 @@ export class Library extends EventEmitter<LibraryEvents> {
   rename(id: string, rawName: string): Promise<void> {
     return this.mutate(async () => {
       const f = this.get(id)
-      const name = sanitizeName(rawName)
-      if (f.kind === 'space') {
-        const target = uniqueName(
-          name,
-          (await this.siblingsOnDisk(this.root)).filter((n) => n !== f.space.name),
-        )
-        if (target === f.space.name) return
-        await renameWithRetry(this.spaceDir(f.space), this.p(target))
-        f.space.name = target
-      } else if (f.kind === 'chapter') {
-        const dir = this.spaceDir(f.space)
-        const target = uniqueName(
-          name,
-          (await this.siblingsOnDisk(dir)).filter((n) => n !== f.chapter.name),
-        )
-        if (target === f.chapter.name) return
-        await renameWithRetry(this.chapterDir(f.space, f.chapter), join(dir, target))
-        f.chapter.name = target
-      } else {
-        const { space, chapter, page } = f
-        const taken = (await this.pageNamesIn(this.chapterDir(space, chapter))).filter(
-          (n) => n !== page.name,
-        )
-        const target = uniqueName(name, taken)
-        if (target === page.name) return
-        await this.movePageFiles(space, chapter, page, space, chapter, target)
-        await this.writeChapterJson(space, chapter)
+      try {
+        await this.renameFound(f, sanitizeName(rawName))
+      } catch (err) {
+        throw describeLockError(err, this.nameOf(f))
       }
     })
+  }
+
+  private async renameFound(f: Found, name: string): Promise<void> {
+    if (f.kind === 'space') {
+      const target = uniqueName(
+        name,
+        (await this.siblingsOnDisk(this.root)).filter((n) => n !== f.space.name),
+      )
+      if (target === f.space.name) return
+      await renameWithRetry(this.spaceDir(f.space), this.p(target))
+      f.space.name = target
+    } else if (f.kind === 'chapter') {
+      const dir = this.spaceDir(f.space)
+      const target = uniqueName(
+        name,
+        (await this.siblingsOnDisk(dir)).filter((n) => n !== f.chapter.name),
+      )
+      if (target === f.chapter.name) return
+      await renameWithRetry(this.chapterDir(f.space, f.chapter), join(dir, target))
+      f.chapter.name = target
+    } else {
+      const { space, chapter, page } = f
+      const taken = (await this.pageNamesIn(this.chapterDir(space, chapter))).filter(
+        (n) => n !== page.name,
+      )
+      const target = uniqueName(name, taken)
+      if (target === page.name) return
+      await this.movePageFiles(space, chapter, page, space, chapter, target)
+      await this.writeChapterJson(space, chapter)
+    }
   }
 
   /** Renames or moves a page's scene and notes files together. */
@@ -362,56 +385,69 @@ export class Library extends EventEmitter<LibraryEvents> {
   move(id: string, parentId: string | null, index: number): Promise<void> {
     return this.mutate(async () => {
       const f = this.get(id)
-      if (f.kind === 'space') {
-        moveWithin(this.model.spaces, id, index)
-        await this.writeLibraryJson()
-      } else if (f.kind === 'chapter') {
-        const to = parentId ? this.getSpace(parentId).space : f.space
-        if (to === f.space) {
-          moveWithin(f.space.chapters, id, index)
-          await this.writeSpaceJson(f.space)
-          return
-        }
-        const name = uniqueName(f.chapter.name, await this.siblingsOnDisk(this.spaceDir(to)))
-        await this.copyAssets(
-          f.space,
-          to,
-          f.chapter.pages.map((pg) => this.scenePath(f.space, f.chapter, pg)),
-        )
-        await this.queue.drain()
-        await renameWithRetry(this.chapterDir(f.space, f.chapter), join(this.spaceDir(to), name))
-        f.chapter.name = name
-        f.space.chapters = f.space.chapters.filter((c) => c.id !== id)
-        const moved = new Set(f.chapter.pages.map((pg) => pg.id))
-        f.space.pinned = f.space.pinned.filter((pid) => !moved.has(pid))
-        to.chapters.splice(clampIndex(index, to.chapters.length), 0, f.chapter)
-        await this.writeSpaceJson(f.space)
-        await this.writeSpaceJson(to)
-      } else {
-        if (!parentId) throw new Error('A page must move into a chapter')
-        const dest = this.getChapter(parentId)
-        const { space, chapter, page } = f
-        if (dest.chapter === chapter) {
-          moveWithin(chapter.pages, id, index)
-          await this.writeChapterJson(space, chapter)
-          return
-        }
-        if (dest.space !== space) {
-          await this.copyAssets(space, dest.space, [this.scenePath(space, chapter, page)])
-          space.pinned = space.pinned.filter((pid) => pid !== id)
-          await this.writeSpaceJson(space)
-        }
-        const name = uniqueName(
-          page.name,
-          await this.pageNamesIn(this.chapterDir(dest.space, dest.chapter)),
-        )
-        await this.movePageFiles(space, chapter, page, dest.space, dest.chapter, name)
-        chapter.pages = chapter.pages.filter((pg) => pg.id !== id)
-        dest.chapter.pages.splice(clampIndex(index, dest.chapter.pages.length), 0, page)
-        await this.writeChapterJson(space, chapter)
-        await this.writeChapterJson(dest.space, dest.chapter)
+      try {
+        await this.moveFound(f, id, parentId, index)
+      } catch (err) {
+        throw describeLockError(err, this.nameOf(f))
       }
     })
+  }
+
+  private async moveFound(
+    f: Found,
+    id: string,
+    parentId: string | null,
+    index: number,
+  ): Promise<void> {
+    if (f.kind === 'space') {
+      moveWithin(this.model.spaces, id, index)
+      await this.writeLibraryJson()
+    } else if (f.kind === 'chapter') {
+      const to = parentId ? this.getSpace(parentId).space : f.space
+      if (to === f.space) {
+        moveWithin(f.space.chapters, id, index)
+        await this.writeSpaceJson(f.space)
+        return
+      }
+      const name = uniqueName(f.chapter.name, await this.siblingsOnDisk(this.spaceDir(to)))
+      await this.copyAssets(
+        f.space,
+        to,
+        f.chapter.pages.map((pg) => this.scenePath(f.space, f.chapter, pg)),
+      )
+      await this.queue.drain()
+      await renameWithRetry(this.chapterDir(f.space, f.chapter), join(this.spaceDir(to), name))
+      f.chapter.name = name
+      f.space.chapters = f.space.chapters.filter((c) => c.id !== id)
+      const moved = new Set(f.chapter.pages.map((pg) => pg.id))
+      f.space.pinned = f.space.pinned.filter((pid) => !moved.has(pid))
+      to.chapters.splice(clampIndex(index, to.chapters.length), 0, f.chapter)
+      await this.writeSpaceJson(f.space)
+      await this.writeSpaceJson(to)
+    } else {
+      if (!parentId) throw new Error('A page must move into a chapter')
+      const dest = this.getChapter(parentId)
+      const { space, chapter, page } = f
+      if (dest.chapter === chapter) {
+        moveWithin(chapter.pages, id, index)
+        await this.writeChapterJson(space, chapter)
+        return
+      }
+      if (dest.space !== space) {
+        await this.copyAssets(space, dest.space, [this.scenePath(space, chapter, page)])
+        space.pinned = space.pinned.filter((pid) => pid !== id)
+        await this.writeSpaceJson(space)
+      }
+      const name = uniqueName(
+        page.name,
+        await this.pageNamesIn(this.chapterDir(dest.space, dest.chapter)),
+      )
+      await this.movePageFiles(space, chapter, page, dest.space, dest.chapter, name)
+      chapter.pages = chapter.pages.filter((pg) => pg.id !== id)
+      dest.chapter.pages.splice(clampIndex(index, dest.chapter.pages.length), 0, page)
+      await this.writeChapterJson(space, chapter)
+      await this.writeChapterJson(dest.space, dest.chapter)
+    }
   }
 
   // ---------- duplicate / pin / colour ----------
@@ -476,43 +512,87 @@ export class Library extends EventEmitter<LibraryEvents> {
       const f = find(this.model, id)
       if (!f) return
       await this.queue.drain()
-      if (f.kind === 'space') {
-        await this.trash(this.spaceDir(f.space))
-        this.model.spaces = this.model.spaces.filter((s) => s.id !== id)
-        await this.writeLibraryJson()
-        for (const c of f.space.chapters) for (const pg of c.pages) this.emit('pageRemoved', pg.id)
-      } else if (f.kind === 'chapter') {
-        await this.trash(this.chapterDir(f.space, f.chapter))
-        f.space.chapters = f.space.chapters.filter((c) => c.id !== id)
-        const gone = new Set(f.chapter.pages.map((pg) => pg.id))
-        f.space.pinned = f.space.pinned.filter((p) => !gone.has(p))
-        await this.writeSpaceJson(f.space)
-        for (const pid of gone) this.emit('pageRemoved', pid)
-      } else {
-        const { space, chapter, page } = f
-        const notes = this.notesPath(space, chapter, page)
-        await this.trash(this.scenePath(space, chapter, page))
-        if (await exists(notes)) await this.trash(notes)
-        chapter.pages = chapter.pages.filter((pg) => pg.id !== id)
-        if (space.pinned.includes(id)) {
-          space.pinned = space.pinned.filter((p) => p !== id)
-          await this.writeSpaceJson(space)
-        }
-        await this.writeChapterJson(space, chapter)
-        this.emit('pageRemoved', id)
+      try {
+        await this.trashFound(f, id)
+      } catch (err) {
+        // Its files are still on disk, so the item comes back into the tree (published below).
+        const why = isLockError(err)
+          ? 'something in it is open in another program (an Explorer window, a sync tool or antivirus)'
+          : err instanceof Error
+            ? err.message
+            : String(err)
+        this.emit(
+          'notice',
+          `Couldn’t delete “${this.nameOf(f)}”: ${why}. It’s back in the sidebar.`,
+        )
       }
     })
   }
 
-  /** The OS trash, or a `.trash/` folder in the library when there is none (some Linux setups). */
-  private async trash(path: string): Promise<void> {
+  private async trashFound(f: Found, id: string): Promise<void> {
+    if (f.kind === 'space') {
+      await this.trash([this.spaceDir(f.space)])
+      this.model.spaces = this.model.spaces.filter((s) => s.id !== id)
+      await this.writeLibraryJson()
+      for (const c of f.space.chapters) for (const pg of c.pages) this.emit('pageRemoved', pg.id)
+    } else if (f.kind === 'chapter') {
+      await this.trash([this.chapterDir(f.space, f.chapter)])
+      f.space.chapters = f.space.chapters.filter((c) => c.id !== id)
+      const gone = new Set(f.chapter.pages.map((pg) => pg.id))
+      f.space.pinned = f.space.pinned.filter((p) => !gone.has(p))
+      await this.writeSpaceJson(f.space)
+      for (const pid of gone) this.emit('pageRemoved', pid)
+    } else {
+      const { space, chapter, page } = f
+      const notes = this.notesPath(space, chapter, page)
+      const paths = [this.scenePath(space, chapter, page)]
+      if (await exists(notes)) paths.push(notes)
+      await this.trash(paths)
+      chapter.pages = chapter.pages.filter((pg) => pg.id !== id)
+      if (space.pinned.includes(id)) {
+        space.pinned = space.pinned.filter((p) => p !== id)
+        await this.writeSpaceJson(space)
+      }
+      await this.writeChapterJson(space, chapter)
+      this.emit('pageRemoved', id)
+    }
+  }
+
+  /**
+   * Moves items to the OS trash, or to a `.trash/` folder in the library when there
+   * is none (some Linux setups). Every item is checked first, and nothing is
+   * trashed unless all of it can be: on Windows, handing a locked folder to the
+   * Recycle Bin pops up an "administrator permission" dialog.
+   */
+  private async trash(paths: string[]): Promise<void> {
+    const claimed: Array<{ path: string; name: string }> = []
+    for (const path of paths) claimed.push({ path: await this.claim(path), name: basename(path) })
+    for (const { path, name } of claimed) {
+      try {
+        await this.deps.trash(path)
+      } catch {
+        const dir = this.p(TRASH_DIR)
+        await mkdir(dir, { recursive: true })
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+        await renameWithRetry(path, join(dir, `${stamp} ${name}`))
+      }
+    }
+  }
+
+  /**
+   * Proves nothing holds `path` open by renaming it to a hidden sibling and back
+   * (retrying briefly for antivirus and indexers); throws if it's locked. Returns
+   * the path to trash: normally the original, or the hidden name if renaming back
+   * failed (it's being deleted anyway, so it is never left hidden in the library).
+   */
+  private async claim(path: string): Promise<string> {
+    const hidden = join(dirname(path), `.${basename(path)}.zb-${randomUUID().slice(0, 8)}`)
+    await renameWithRetry(path, hidden)
     try {
-      await this.deps.trash(path)
+      await renameWithRetry(hidden, path)
+      return path
     } catch {
-      const dir = this.p(TRASH_DIR)
-      await mkdir(dir, { recursive: true })
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      await rename(path, join(dir, `${stamp} ${basename(path)}`))
+      return hidden
     }
   }
 

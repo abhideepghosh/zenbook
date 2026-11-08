@@ -117,6 +117,7 @@ export class Session {
       search.syncTree(lib.model)
       this.send(Channels.tree, tree)
     })
+    lib.on('notice', (message) => this.send(Channels.notice, message))
     lib.on('pageChanged', (id) => {
       void search.refreshPage(id)
       this.send(Channels.pageExternalChange, id)

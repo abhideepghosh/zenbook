@@ -10,6 +10,7 @@ export const Channels = {
   libraryStatus: 'library:status',
   libraryChoose: 'library:choose',
   tree: 'library:tree',
+  notice: 'library:notice',
   loadShapes: 'library:load-shapes',
   saveShapes: 'library:save-shapes',
 

@@ -6,6 +6,21 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /** Errors Windows raises while antivirus or a sync tool briefly holds a file. */
 const TRANSIENT = new Set(['EPERM', 'EBUSY', 'EACCES'])
 
+/** True for the errors Windows gives when another program holds a file or folder open. */
+export function isLockError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code
+  return code !== undefined && TRANSIENT.has(code)
+}
+
+/** Turns a lock error into a message people can act on; other errors pass through. */
+export function describeLockError(err: unknown, name: string): unknown {
+  if (!isLockError(err)) return err
+  return new Error(
+    `“${name}” is in use by another program (an Explorer window, a sync tool or antivirus). Close it and try again.`,
+    { cause: err },
+  )
+}
+
 /** rename() with backoff for transient Windows locks (~1.5 s in total). */
 export async function renameWithRetry(from: string, to: string): Promise<void> {
   for (let attempt = 0; ; attempt++) {

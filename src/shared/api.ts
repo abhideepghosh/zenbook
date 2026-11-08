@@ -118,6 +118,8 @@ export interface ZenbookApi {
     status(): Promise<LibraryStatus>
     choose(kind: 'default' | 'pick'): Promise<LibraryStatus>
     onTree(cb: (tree: Tree) => void): Unsubscribe
+    /** Messages from the library that weren't the answer to a request (e.g. a delete that failed). */
+    onNotice(cb: (message: string) => void): Unsubscribe
     loadShapes(): Promise<string | null>
     saveShapes(json: string): Promise<void>
   }

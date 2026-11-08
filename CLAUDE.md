@@ -67,6 +67,10 @@ build/                 icon.svg/png, macOS entitlements
   errors about `esm.sh` fonts are expected: the CSP blocks Excalidraw's CDN fallback.
 - Never watch with one handle per folder (e.g. chokidar): on Windows it blocks renaming
   Space folders. The watcher uses recursive `fs.watch` (one handle on the root).
+- Windows can't move a folder while any file inside it is open, and `shell.trashItem` on a
+  locked folder pops up an "administrator permission" dialog. `Library.trash()` first proves
+  each item can move (rename to a hidden name and back); a failed delete comes back with a
+  `notice` toast. Restart the app after a main-process change: a stale main keeps old code.
 - Tall scrollers need `contain: strict`, or software-rendered canvases slow to a crawl
   (see the SPEC status section).
 - `ZENBOOK_USER_DATA`, `ZENBOOK_LIBRARY` are honoured only when the app is not packaged;

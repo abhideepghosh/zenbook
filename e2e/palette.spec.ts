@@ -162,6 +162,23 @@ test('Spaces can be named on creation and renamed later (folders are never locke
     const { existsSync } = await import('node:fs')
     const { join } = await import('node:path')
     await expect.poll(() => existsSync(join(dirs.library, 'University'))).toBe(true)
+
+    // Deleting it (what "Delete Space…" in the Space menu runs, minus the native
+    // confirm) hides it at once, then really trashes the folder: no lock, no error.
+    const id = await win.evaluate(async () => {
+      const status = await window.zenbook.library.status()
+      return status.kind === 'ready'
+        ? (status.tree.spaces.find((s) => s.name === 'University')?.id ?? '')
+        : ''
+    })
+    expect(id).not.toBe('')
+    await win.evaluate((spaceId) => window.zenbook.ops.remove(spaceId), id)
+    await expect(header).not.toHaveText('University')
+    await expect
+      .poll(() => existsSync(join(dirs.library, 'University')), { timeout: 15_000 })
+      .toBe(false)
+    await expect(header).not.toHaveText('University') // it didn't come back
+    await expect(win.getByRole('status')).toHaveCount(0)
     await app.close()
   } finally {
     cleanup(dirs)

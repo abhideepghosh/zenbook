@@ -37,6 +37,7 @@ const api: ZenbookApi = {
     status: () => invoke(Channels.libraryStatus),
     choose: (kind) => invoke(Channels.libraryChoose, kind),
     onTree: (cb) => subscribe<Tree>(Channels.tree, cb),
+    onNotice: (cb) => subscribe<string>(Channels.notice, cb),
     loadShapes: () => invoke(Channels.loadShapes),
     saveShapes: (json) => invoke(Channels.saveShapes, json),
   },
