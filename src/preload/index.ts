@@ -22,6 +22,7 @@ ipcRenderer.on(Channels.flush, () => {
 
 const api: ZenbookApi = {
   platform: process.platform as Platform,
+  perf: process.env.ZENBOOK_PERF === '1',
   app: {
     info: () => invoke(Channels.appInfo),
     onFlush: (cb) => {

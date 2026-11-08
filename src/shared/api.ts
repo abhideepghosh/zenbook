@@ -104,6 +104,8 @@ export type Unsubscribe = () => void
 export interface ZenbookApi {
   /** Known synchronously so layout (traffic lights, window controls) never shifts. */
   platform: Platform
+  /** ZENBOOK_PERF=1: log timings to the console (tests, fixtures). */
+  perf: boolean
   app: {
     info(): Promise<AppInfo>
     /** Main asks the renderer to save everything before quitting. */

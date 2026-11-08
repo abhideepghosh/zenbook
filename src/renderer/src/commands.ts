@@ -32,8 +32,9 @@ export function openPage(pageId: string | null): void {
   const { tree, pageId: current, prefs } = get()
   if (!pageId || pageId === current) return
   const loc = locatePage(tree, pageId)
-  if (!loc) return
-  set({ pageId, spaceId: loc.space.id, banner: null })
+  // Created a moment ago: IPC replies can overtake the tree event, so open it when the tree lands.
+  if (!loc) return set({ pendingPageId: pageId })
+  set({ pageId, spaceId: loc.space.id, banner: null, pendingPageId: null })
   const recent = [pageId, ...prefs.recent.filter((id) => id !== pageId)].slice(0, 20)
   setPrefs({ lastPageId: pageId, recent })
 }
@@ -62,8 +63,9 @@ export function stepPage(step: 1 | -1): void {
 
 /** Applies a new tree from the main process, keeping the user on a sensible page. */
 export function applyTree(next: Tree): void {
-  const { tree: previous, pageId, spaceId } = get()
+  const { tree: previous, pageId, spaceId, pendingPageId } = get()
   set({ tree: next })
+  if (pendingPageId && locatePage(next, pendingPageId)) return openPage(pendingPageId)
   if (pageId && locatePage(next, pageId)) return
   if (!pageId && spaceId && findSpace(next, spaceId) && !firstPage(findSpace(next, spaceId))) return
   const fallback = fallbackPage(previous, next, pageId, spaceId)

@@ -45,6 +45,7 @@
 .editor {
   flex: 1;
   min-height: 0;
+  contain: strict; /* long notes are tall; see the sidebar's .scroll */
   overflow: hidden;
   user-select: text;
   cursor: text;

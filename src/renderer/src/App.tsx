@@ -4,6 +4,7 @@ import styles from './App.module.css'
 import { applyTree, openPage } from './commands'
 import { flushAll, handleExternalChange } from './editors'
 import { installShortcuts } from './keys'
+import Palette from './palette/Palette'
 import Sidebar from './sidebar/Sidebar'
 import { get, set, useStore } from './store'
 import { findSpace, firstPage, locatePage } from './tree'
@@ -101,6 +102,7 @@ export function App() {
         </aside>
       )}
 
+      <Palette />
       <Toast />
     </div>
   )

@@ -28,6 +28,8 @@ export interface UiState {
   toast: Toast | null
   banner: string | null
   update: UpdateStatus
+  /** A page just created whose tree update hasn't arrived yet. */
+  pendingPageId: string | null
 }
 
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -62,6 +64,7 @@ export const useStore = create<UiState>()(() => ({
   toast: null,
   banner: null,
   update: { kind: 'idle' },
+  pendingPageId: null,
 }))
 
 darkQuery.addEventListener('change', (e) => useStore.setState({ dark: e.matches }))

@@ -21,9 +21,7 @@ import { parseScene, serializeScene, type KeptAppState } from './scene'
 
 const SAVE_DELAY_MS = 800
 const RETRY_DELAY_MS = 3000
-const perf = Boolean(
-  import.meta.env.DEV || (globalThis as { __ZENBOOK_PERF__?: boolean }).__ZENBOOK_PERF__,
-)
+const perf = import.meta.env.DEV || window.zenbook.perf
 
 type Zoom = AppState['zoom']
 
@@ -90,6 +88,19 @@ class CanvasController implements PageEditor {
     if (!this.pageId || this.readOnly) return
     this.forceSave = true
     this.markDirty()
+  }
+
+  /** Opens one of Excalidraw's own dialogs (image export). */
+  openDialog(name: 'imageExport'): void {
+    this.api?.updateScene({
+      appState: { openDialog: { name } },
+      captureUpdate: CaptureUpdateAction.NEVER,
+    })
+  }
+
+  /** Excalidraw's find-on-canvas lives in its sidebar's search tab. */
+  openSearch(): void {
+    this.api?.toggleSidebar({ name: 'default', tab: 'search', force: true })
   }
 
   /** True while something on the canvas is selected or being edited (Esc belongs to Excalidraw then). */
@@ -313,10 +324,17 @@ class CanvasController implements PageEditor {
     this.loading = false
     set({ saveState: this.forceSave ? 'dirty' : 'saved' })
     if (this.forceSave) this.markDirty()
-    if (perf)
-      console.log(
-        `[perf] page open: ${Math.round(performance.now() - started)} ms (${elements.length} elements)`,
+    // Measured to the next painted frame: what the user actually perceives.
+    if (perf) {
+      // Two frames: Excalidraw draws in the first, the second runs after it was painted.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          console.log(
+            `[perf] page open: ${Math.round(performance.now() - started)} ms (${elements.length} elements)`,
+          ),
+        ),
       )
+    }
 
     await this.loadImages(pageId, elements)
   }
