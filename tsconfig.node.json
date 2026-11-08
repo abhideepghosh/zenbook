@@ -20,9 +20,7 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
-    "e2e/**/*",
     "electron.vite.config.ts",
-    "vitest.config.mts",
-    "playwright.config.ts"
+    "vitest.config.mts"
   ]
 }

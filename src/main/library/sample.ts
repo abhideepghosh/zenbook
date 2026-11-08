@@ -107,24 +107,23 @@ export function welcomeScene(pageId: string): string {
   })
 }
 
-export const welcomeNotes = `# Welcome
-
-Every page is a canvas and a note. This is the note.
-
-## A few keys
-
-- **Ctrl/⌘ K**: jump to any page, or run any action
-- **Ctrl/⌘ N**: new page
-- **Ctrl/⌘ .**: focus mode (Esc to leave)
-- **Ctrl/⌘ \\\\**: hide the sidebar, **Ctrl/⌘ J**: hide these notes
-- **F2**: rename a page
-
-## Try
-
-- [ ] Draw something on the canvas
-- [ ] Right-click a page in the sidebar
-- [ ] Drag a page to reorder it
-
-Your library is a normal folder. Put it in Dropbox, iCloud Drive, OneDrive or a git repo
-to have it on every computer.
-`
+export const welcomeNotes = [
+  'Every page is a canvas and a note. This is the note: plain Markdown, saved as you type.',
+  '',
+  '## A few keys',
+  '',
+  '- `Ctrl/⌘ K` jump to any page, or run any action',
+  '- `Ctrl/⌘ N` new page',
+  '- `Ctrl/⌘ .` focus mode, `Esc` to leave',
+  '- `Ctrl/⌘ \\` hide the sidebar, `Ctrl/⌘ J` hide these notes',
+  '- `F2` rename a page',
+  '',
+  '## Try',
+  '',
+  '- [ ] Draw something on the canvas',
+  '- [ ] Right-click a page in the sidebar',
+  '- [ ] Drag a page to reorder it',
+  '',
+  'Your library is a normal folder. Put it in Dropbox, iCloud Drive, OneDrive or a git repo to have it on every computer.',
+  '',
+].join('\n')

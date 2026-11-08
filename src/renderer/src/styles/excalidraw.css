@@ -1,0 +1,30 @@
+/*
+ * Gentle restyling of Excalidraw through its own CSS variables and classes,
+ * so it shares Zenbook's calm palette. The package itself is never patched.
+ */
+
+.excalidraw {
+  --ui-font: var(--font-ui);
+  /* Flat islands: hairline borders instead of drop shadows. */
+  --shadow-island: 0 0 0 1px var(--line);
+  --island-bg-color: var(--bg);
+  --default-bg-color: transparent;
+  --color-surface-lowest: var(--bg);
+}
+
+.excalidraw.theme--dark {
+  --island-bg-color: var(--surface);
+}
+
+/* Let the paper layer show through the canvas area. */
+.excalidraw,
+.excalidraw .excalidraw-container,
+.excalidraw .layer-ui__wrapper {
+  background: transparent;
+}
+
+.excalidraw .welcome-screen-center__heading {
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 15px;
+}

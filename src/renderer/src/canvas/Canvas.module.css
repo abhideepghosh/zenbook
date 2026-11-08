@@ -1,0 +1,49 @@
+.wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  isolation: isolate;
+}
+
+/*
+ * The paper sits under a transparent Excalidraw canvas. Its pattern (on ::after)
+ * follows scroll and zoom through CSS variables set by PaperLayer: no React renders.
+ */
+.paper {
+  --paper-size: 24px;
+  --paper-x: 0px;
+  --paper-y: 0px;
+  --paper-opacity: 1;
+  --paper-ink: color-mix(in srgb, var(--text) 18%, transparent);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg);
+}
+
+.paper::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: var(--paper-opacity);
+  background-position: var(--paper-x) var(--paper-y);
+  background-size: var(--paper-size) var(--paper-size);
+}
+
+.paper[data-paper='dots']::after {
+  background-image: radial-gradient(circle at center, var(--paper-ink) 1.1px, transparent 1.5px);
+}
+
+.paper[data-paper='lines']::after {
+  background-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--paper-size) - 1px),
+    var(--paper-ink) calc(var(--paper-size) - 1px)
+  );
+}
+
+.paper[data-paper='grid']::after {
+  background-image:
+    linear-gradient(to right, var(--paper-ink) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--paper-ink) 1px, transparent 1px);
+}

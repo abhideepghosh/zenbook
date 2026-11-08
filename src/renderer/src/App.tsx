@@ -1,64 +1,107 @@
+import { lazy, Suspense, useEffect, type CSSProperties } from 'react'
+import type { LibraryStatus } from '../../shared/api'
 import styles from './App.module.css'
-import { Icon } from './ui/icons'
+import { applyTree, openPage } from './commands'
+import { flushAll, handleExternalChange } from './editors'
+import { installShortcuts } from './keys'
+import Sidebar from './sidebar/Sidebar'
+import { get, set, useStore } from './store'
+import { findSpace, firstPage, locatePage } from './tree'
+import { Banner, Toast } from './ui/Overlays'
+import { ResizeHandle } from './ui/ResizeHandle'
+import TitleStrip from './ui/TitleStrip'
+import { Welcome } from './ui/Welcome'
 
-const mod = window.zenbook.platform === 'darwin' ? '⌘' : 'Ctrl'
+// The canvas and the notes editor are separate chunks: the sidebar paints first.
+const Canvas = lazy(() => import('./canvas/Canvas'))
+const NotesPanel = lazy(() => import('./notes/NotesPanel'))
 
-// Phase 1 shell: the three columns and the draggable title strip.
-// Navigation, canvas and notes fill these regions in Phases 3 and 4.
+/** Shows a library once it's open: the last page, or the first one. */
+function applyStatus(status: LibraryStatus): void {
+  if (status.kind === 'none') return set({ status: 'none', error: null })
+  if (status.kind === 'error') return set({ status: 'error', error: status.message })
+  set({ status: 'ready', error: null, root: status.root, tree: status.tree })
+  const { prefs } = get()
+  const last =
+    prefs.lastPageId && locatePage(status.tree, prefs.lastPageId) ? prefs.lastPageId : null
+  const start = last ?? firstPage(status.tree.spaces[0])?.id ?? null
+  if (start) openPage(start)
+  else set({ spaceId: status.tree.spaces[0]?.id ?? null })
+}
+
+async function boot(): Promise<void> {
+  const [prefs, status] = await Promise.all([
+    window.zenbook.prefs.get(),
+    window.zenbook.library.status(),
+  ])
+  set({ prefs })
+  applyStatus(status)
+}
+
 export function App() {
+  const status = useStore((s) => s.status)
+  const prefs = useStore((s) => s.prefs)
+  const focus = useStore((s) => s.focus)
+  const narrow = useStore((s) => s.narrow)
+  const color = useStore((s) => findSpace(s.tree, s.spaceId)?.color ?? 'sage')
+
+  useEffect(() => {
+    void boot()
+    const offs = [
+      installShortcuts(),
+      window.zenbook.library.onTree(applyTree),
+      window.zenbook.page.onExternalChange((id) => void handleExternalChange(id)),
+      window.zenbook.app.onFlush(flushAll),
+      window.zenbook.app.onUpdate((update) => set({ update })),
+    ]
+    return () => offs.forEach((off) => off())
+  }, [])
+
+  if (status === 'loading') return <div className={styles.loading} />
+  if (status === 'none' || status === 'error') return <Welcome onReady={applyStatus} />
+
+  const showSidebar = prefs.sidebarOpen && !focus
+  const showNotes = prefs.notesOpen && !focus
+  const layout = {
+    '--accent': `var(--accent-${color})`,
+    '--sidebar-width': `${prefs.sidebarWidth}px`,
+    '--notes-width': `${prefs.notesWidth}px`,
+  } as CSSProperties
+
   return (
-    <div className={styles.app}>
-      <nav className={styles.sidebar} aria-label="Library">
-        <div className={`${styles.strip} ${styles.sidebarStrip}`}>
-          <button type="button" className={styles.space}>
-            <span className={styles.spaceDot} />
-            <span className={styles.spaceName}>Personal</span>
-            <Icon name="chevronDown" size={14} />
-          </button>
+    <div
+      className={styles.app}
+      style={layout}
+      data-sidebar={showSidebar}
+      data-notes={showNotes}
+      data-narrow={narrow}
+      data-focus={focus}
+    >
+      {showSidebar && (
+        <div className={styles.sidebar}>
+          <Sidebar />
+          <ResizeHandle side="sidebar" width={prefs.sidebarWidth} min={200} max={360} />
         </div>
-
-        <button type="button" className={styles.search}>
-          <Icon name="search" size={15} />
-          <span>Search</span>
-          <kbd className={styles.kbd}>{mod} K</kbd>
-        </button>
-
-        <p className={styles.empty}>Your chapters will appear here.</p>
-
-        <div className={styles.footer}>
-          <button type="button" className={styles.ghost}>
-            <Icon name="plus" size={15} />
-            <span>New page</span>
-          </button>
-          <button type="button" className={styles.iconButton} aria-label="Settings">
-            <Icon name="more" />
-          </button>
-        </div>
-      </nav>
+      )}
 
       <main className={styles.center}>
-        <div className={`${styles.strip} ${styles.centerStrip}`}>
-          <div className={styles.breadcrumb}>
-            <span>Personal</span>
-            <span className={styles.separator}>/</span>
-            <span className={styles.current}>Untitled</span>
-          </div>
-          <button type="button" className={styles.iconButton} aria-label="Toggle notes">
-            <Icon name="panelRight" />
-          </button>
-        </div>
-        <div className={styles.canvas}>
-          <p className={styles.hint}>A blank page awaits.</p>
-        </div>
+        <TitleStrip />
+        <Banner />
+        <Suspense fallback={<div className={styles.paper} />}>
+          <Canvas />
+        </Suspense>
       </main>
 
-      <aside className={styles.notes} aria-label="Notes">
-        <div className={`${styles.strip} ${styles.notesStrip}`} />
-        <div className={styles.notesBody}>
-          <h1 className={styles.title}>Untitled</h1>
-          <p className={styles.hint}>Notes for this page live here.</p>
-        </div>
-      </aside>
+      {showNotes && (
+        <aside className={styles.notes} aria-label="Notes">
+          {!narrow && <ResizeHandle side="notes" width={prefs.notesWidth} min={280} max={560} />}
+          <Suspense fallback={null}>
+            <NotesPanel />
+          </Suspense>
+        </aside>
+      )}
+
+      <Toast />
     </div>
   )
 }

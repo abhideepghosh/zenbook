@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, rename, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { Accent, AssetFile, NodeKind, PageData, Tree } from '../../shared/api'
-import { exists, readText, renameWithRetry, WriteQueue } from './fsx'
+import { exists, fingerprint, readText, renameWithRetry, WriteQueue } from './fsx'
 import {
   ASSETS_DIR,
   CHAPTER_FILE,
@@ -525,11 +525,16 @@ export class Library extends EventEmitter<LibraryEvents> {
   readPage(id: string): Promise<PageData> {
     return this.exclusive(async () => {
       const { space, chapter, page } = this.getPage(id)
-      const [scene, notes] = await Promise.all([
-        readFile(this.scenePath(space, chapter, page), 'utf8'),
-        readText(this.notesPath(space, chapter, page)),
+      const scenePath = this.scenePath(space, chapter, page)
+      const notesPath = this.notesPath(space, chapter, page)
+      const [scene, notes, sf, nf] = await Promise.all([
+        readFile(scenePath, 'utf8'),
+        readText(notesPath),
+        fingerprint(scenePath),
+        fingerprint(notesPath),
       ])
-      return { scene: scene.trim() ? scene : null, notes: notes ?? '' }
+      const modified = Math.max(sf?.mtimeMs ?? 0, nf?.mtimeMs ?? 0)
+      return { scene: scene.trim() ? scene : null, notes: notes ?? '', modified }
     })
   }
 
@@ -550,8 +555,7 @@ export class Library extends EventEmitter<LibraryEvents> {
       if (markdown.trim()) {
         await this.queue.write(path, markdown)
       } else if (await exists(path)) {
-        await this.queue.drain()
-        await rm(path, { force: true })
+        await this.queue.remove(path)
       }
       this.emit('pageSaved', id)
     })

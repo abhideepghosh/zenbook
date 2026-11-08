@@ -1,0 +1,278 @@
+/* ---------- Title strip ---------- */
+
+.strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--strip-height);
+  padding: 0 var(--space-3);
+  -webkit-app-region: drag;
+}
+
+.strip[data-edge='true'] {
+  padding-right: calc(var(--wco-inset) + var(--space-3));
+}
+
+.strip button,
+.strip input {
+  -webkit-app-region: no-drag;
+}
+
+.strip[data-focus='true'] > * {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration) var(--ease);
+}
+
+.breadcrumb {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.crumb {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.separator {
+  color: var(--text-faint);
+}
+
+.current {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+}
+
+.save {
+  flex: none;
+  margin-left: var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--text-label);
+  transition: opacity 600ms var(--ease);
+}
+
+/* "Saved" fades away: the quiet default needs no announcement. */
+.save[data-state='saved'] {
+  opacity: 0;
+  transition-delay: 1200ms;
+}
+
+.save[data-state='error'] {
+  color: var(--accent-clay);
+}
+
+.iconButton {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.iconButton:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.iconButton[aria-pressed='true'] {
+  color: var(--text);
+}
+
+/* ---------- Toast and banner ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-5);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  transform: translateX(-50%);
+  border-radius: var(--radius-lg);
+  background: var(--text);
+  color: var(--bg);
+  animation: rise var(--duration) var(--ease);
+}
+
+.toastAction {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  color: inherit;
+  font-weight: 600;
+}
+
+.toastAction:hover {
+  background: color-mix(in srgb, var(--bg) 16%, transparent);
+}
+
+.banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 var(--space-3) var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--accent-sand) 50%, var(--line));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent-sand) 10%, var(--bg));
+}
+
+.banner > span {
+  flex: 1;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+
+/* ---------- Update pill ---------- */
+
+.pill {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: var(--text-label);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pill:hover {
+  border-color: var(--accent);
+}
+
+/* ---------- Resize handles ---------- */
+
+.resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.resize[data-side='sidebar'] {
+  right: -4px;
+}
+
+.resize[data-side='notes'] {
+  left: -4px;
+}
+
+.resize:hover,
+:global(html[data-resizing]) .resize {
+  background: linear-gradient(
+    to right,
+    transparent 3px,
+    var(--line) 3px,
+    var(--line) 5px,
+    transparent 5px
+  );
+}
+
+/* ---------- Welcome ---------- */
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+}
+
+.welcomeStrip {
+  flex: none;
+  height: var(--strip-height);
+  -webkit-app-region: drag;
+}
+
+.welcomeCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 440px;
+  margin: auto;
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.welcomeCard h1 {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.welcomeCard p {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.enso {
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--space-2);
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.welcomeActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.primary,
+.secondary {
+  height: 36px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius);
+  font-weight: 500;
+}
+
+.primary {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.primary:hover {
+  background: color-mix(in srgb, var(--text) 88%, var(--bg));
+}
+
+.secondary {
+  border: 1px solid var(--line);
+}
+
+.secondary:hover {
+  background: var(--hover);
+}
+
+.primary:disabled,
+.secondary:disabled {
+  opacity: 0.5;
+}
+
+.fine {
+  font-size: 12px;
+}

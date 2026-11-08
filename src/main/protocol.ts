@@ -1,4 +1,4 @@
-import { isAbsolute, join, normalize, relative, sep } from 'node:path'
+import { extname, isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { net, protocol } from 'electron'
 
@@ -12,7 +12,7 @@ export const APP_URL = `${APP_ORIGIN}index.html`
 
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'", // WebAssembly only (Excalidraw's export font subsetting); no eval
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
@@ -23,6 +23,16 @@ const CSP = [
   "form-action 'none'",
   "frame-ancestors 'none'",
 ].join('; ')
+
+/** Types file:// fetches don't infer (fonts as octet-stream would also break wasm streaming). */
+const MIME: Record<string, string> = {
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.wasm': 'application/wasm',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+}
 
 /** Must run before the app is ready. */
 export function registerAppScheme(): void {
@@ -63,10 +73,13 @@ export function handleAppProtocol(rendererDir: string): void {
     if (!file) return new Response(null, { status: 403 })
 
     const response = await net.fetch(pathToFileURL(file).toString())
-    if (!file.endsWith('.html')) return response
+    const mime = MIME[extname(file).toLowerCase()]
+    const isHtml = file.endsWith('.html')
+    if (!mime && !isHtml) return response
 
     const headers = new Headers(response.headers)
-    headers.set('Content-Security-Policy', CSP)
+    if (mime) headers.set('Content-Type', mime)
+    if (isHtml) headers.set('Content-Security-Policy', CSP)
     return new Response(response.body, { status: response.status, headers })
   })
 }

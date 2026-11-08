@@ -46,6 +46,8 @@ export interface PageData {
   /** Raw .excalidraw JSON, or null for a page whose file is empty or unreadable. */
   scene: string | null
   notes: string
+  /** Last change to either file (ms since epoch), for "edited 3 min ago". */
+  modified: number
 }
 
 export interface AssetFile {

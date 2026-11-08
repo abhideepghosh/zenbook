@@ -1,0 +1,58 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* The title-bar strip above the notes: draggable, and room for Windows caption buttons. */
+.strip {
+  flex: none;
+  height: var(--strip-height);
+  padding-right: var(--wco-inset);
+  -webkit-app-region: drag;
+}
+
+/* As an overlay the panel starts below the title strip, so it needs no strip of its own. */
+.strip[data-overlay='true'] {
+  display: none;
+}
+
+.titleRow {
+  flex: none;
+  padding: var(--space-2) var(--space-5) var(--space-3);
+}
+
+.title {
+  overflow-wrap: anywhere;
+  font-size: var(--text-title);
+  font-weight: 650;
+  line-height: 1.3;
+  cursor: text;
+}
+
+.titleInput {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--accent);
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: 650 var(--text-title) / 1.3 var(--font-ui);
+}
+
+.editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  user-select: text;
+  cursor: text;
+}
+
+.footer {
+  flex: none;
+  padding: var(--space-2) var(--space-5) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-label);
+}

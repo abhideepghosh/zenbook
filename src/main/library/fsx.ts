@@ -141,6 +141,26 @@ export class WriteQueue {
     return now !== null && now.mtimeMs === mine.mtimeMs && now.size === mine.size
   }
 
+  private readonly removedByUs = new Map<string, number>()
+
+  /** Deletes a file and remembers that we did, so the watcher doesn't report it. */
+  async remove(path: string): Promise<void> {
+    await this.drain()
+    this.removedByUs.set(path, Date.now())
+    await rm(path, { force: true })
+  }
+
+  /** True if we deleted this file in the last few seconds. */
+  isOwnRemoval(path: string): boolean {
+    const at = this.removedByUs.get(path)
+    if (at === undefined) return false
+    if (Date.now() - at > 5000) {
+      this.removedByUs.delete(path)
+      return false
+    }
+    return true
+  }
+
   /** Remember a path we just changed by other means (rename, copy). */
   async remember(path: string): Promise<void> {
     const fp = await fingerprint(path)
