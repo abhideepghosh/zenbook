@@ -1,0 +1,51 @@
+name: Release
+
+# Push a tag like v0.2.0 (npm version minor && git push --follow-tags).
+# Each OS builds its installers and uploads them to a draft GitHub Release with
+# the latest*.yml files the auto-updater reads. Review the draft, then publish.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing and notarisation: add these secrets once you have an
+          # Apple Developer ID. Without them the Mac build is unsigned.
+          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Lets a signed Mac build update itself (see src/main/updater.ts).
+          MAIN_VITE_MAC_SIGNED: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
+          # Windows signing (SignPath, Azure Trusted Signing or a .pfx): optional.
+          WIN_CSC_LINK: ${{ secrets.WIN_CERT_P12_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+        run: |
+          npm run build
+          npx electron-builder --publish always

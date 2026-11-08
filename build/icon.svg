@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Zenbook: a brushed ink ensō on quiet paper. Rendered to icon.png by scripts/make-icon.mjs. -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="#FBFAF8"/>
+  <rect x="101" y="101" width="822" height="822" rx="185" fill="none" stroke="#E2DFD8" stroke-width="2"/>
+  <path d="M 643.0 285.1 A 262 262 0 1 0 754.9 413.9 L 728.4 413.8 A 214 214 0 1 1 637.0 308.7 Z" fill="#2B2A26" stroke="#2B2A26" stroke-width="14" stroke-linejoin="round"/>
+  <circle cx="512" cy="512" r="18" fill="#7C9A82"/>
+</svg>

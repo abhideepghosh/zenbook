@@ -42,6 +42,10 @@
   user-select: text;
 }
 
+.input:focus-visible {
+  outline: none; /* the whole row is the field; the caret is enough */
+}
+
 .input::placeholder {
   color: var(--text-faint);
 }

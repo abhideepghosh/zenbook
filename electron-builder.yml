@@ -1,22 +1,26 @@
-# Packaging config. Installers and the release pipeline are completed in Phase 6.
+# Packaging. Release builds run in .github/workflows/release.yml on a version tag.
 appId: io.github.abhideepghosh.zenbook
 productName: Zenbook
-copyright: Copyright © 2026 Abhideep Ghosh
+copyright: Copyright © 2026 Abhideep Ghosh and Zenbook contributors
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 directories:
   output: dist
   buildResources: build
 
-# Everything runtime is bundled into out/ by electron-vite, so no node_modules ship.
+# Everything is bundled into out/ by electron-vite. Only electron-updater ships
+# from node_modules (electron-builder adds production dependencies itself).
 files:
   - out/**
   - package.json
+  - '!**/*.map'
 asar: true
+npmRebuild: false # no native modules
 
 # Keep only English Chromium locales (saves ~40 MB unpacked on Windows and Linux).
 electronLanguages: [en, en-US]
 
-# Lock down the Electron binary itself. Verified against a packaged build in Phase 6.
+# Lock down the Electron binary itself.
 electronFuses:
   runAsNode: false
   enableCookieEncryption: true
@@ -34,22 +38,29 @@ win:
 nsis:
   oneClick: true
   perMachine: false
+  deleteAppDataOnUninstall: false # never touch the user's notebook or settings
 
 # Per-architecture builds (never universal) keep each download half the size.
+# Signing and notarisation happen only when the CI secrets exist.
 mac:
   category: public.app-category.productivity
   hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   target:
     - target: dmg
       arch: [arm64, x64]
-    - target: zip
+    - target: zip # needed by the auto-updater
       arch: [arm64, x64]
 
 linux:
   category: Office
+  synopsis: A calm notebook where every page is a canvas
+  maintainer: Abhideep Ghosh <109783702+abhideepghosh@users.noreply.github.com>
   target: [AppImage, deb]
 
 publish:
   provider: github
   owner: abhideepghosh
   repo: zenbook
+  releaseType: draft
