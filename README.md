@@ -110,3 +110,7 @@ drawing open in your browser.
 
 [MIT](LICENSE). Zenbook is built on [Excalidraw](https://github.com/excalidraw/excalidraw)
 (MIT) and [CodeMirror](https://codemirror.net) (MIT).
+
+## Author
+
+Created by [Abhideep Ghosh](https://www.linkedin.com/in/abhideep-ghosh/).
