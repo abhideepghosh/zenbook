@@ -134,3 +134,36 @@ test('performance: a 2,000-element page opens within budget and search stays fas
     cleanup({ userData, library })
   }
 })
+
+test('Spaces can be named on creation and renamed later (folders are never locked)', async () => {
+  const dirs = makeDirs()
+  try {
+    const { app, win } = await launch(dirs)
+    await win.waitForTimeout(3500) // the file watcher starts a few seconds after launch
+    await win.locator('.excalidraw__canvas.interactive').click({ position: { x: 30, y: 400 } })
+    await win.keyboard.press(`${mod}+K`)
+    await win.keyboard.type('> new space')
+    await win.keyboard.press('Enter')
+
+    const name = win.getByRole('textbox', { name: 'Name' })
+    await expect(name).toBeFocused()
+    await win.keyboard.type('Work')
+    await win.keyboard.press('Enter')
+    const header = win.getByRole('button', { name: 'Switch Space' })
+    await expect(header).toHaveText('Work')
+    await expect(win.getByRole('status')).toHaveCount(0) // no error toast
+
+    await header.dblclick()
+    await expect(name).toBeFocused()
+    await win.keyboard.press(`${mod}+A`)
+    await win.keyboard.type('University')
+    await win.keyboard.press('Enter')
+    await expect(header).toHaveText('University')
+    const { existsSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    await expect.poll(() => existsSync(join(dirs.library, 'University'))).toBe(true)
+    await app.close()
+  } finally {
+    cleanup(dirs)
+  }
+})

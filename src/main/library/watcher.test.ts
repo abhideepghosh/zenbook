@@ -64,4 +64,24 @@ describe('watchLibrary', () => {
 
     await stop()
   }, 15_000)
+
+  it('never locks folders: Spaces and chapters can be renamed while watching', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'zenbook-watch-'))
+    roots.push(root)
+    const lib = await Library.open(root, deps)
+    const space = await lib.create('space', null, 'Untitled Space')
+    const chapter = await lib.create('chapter', space, 'Notes')
+    await lib.create('page', chapter, 'Today')
+    const stop = watchLibrary(lib)
+    await new Promise((r) => setTimeout(r, 400))
+
+    await lib.rename(space, 'Work')
+    await lib.rename(chapter, 'Ideas')
+    expect(lib.tree().spaces[0]).toMatchObject({ name: 'Work', chapters: [{ name: 'Ideas' }] })
+    await lib.remove(space)
+    await lib.commitAllRemovals()
+    expect(lib.tree().spaces).toEqual([])
+
+    await stop()
+  }, 15_000)
 })

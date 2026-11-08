@@ -8,7 +8,7 @@ with an "as built" status section, is **docs/SPEC.md**. PLAN.md is the original 
 
 - Electron 45 · electron-vite 6 (Vite 8) · React 19 · TypeScript 6.0 strict
 - `@excalidraw/excalidraw` 0.18 (official package, never forked or patched)
-- CodeMirror 6 for notes · Zustand for UI state · MiniSearch, chokidar, zod in main
+- CodeMirror 6 for notes · Zustand for UI state · MiniSearch and zod in main; Node fs.watch for watching
 - Vitest (unit) · Playwright for Electron (e2e) · electron-builder + electron-updater
 - TypeScript stays on 6.0.x until typescript-eslint supports 7.
 
@@ -65,6 +65,8 @@ build/                 icon.svg/png, macOS entitlements
 - Excalidraw binds Ctrl/Cmd+K to "add link". Zenbook takes it in a capture-phase listener.
 - `EXCALIDRAW_ASSET_PATH` is set in main.tsx, before the Excalidraw chunk loads. Console
   errors about `esm.sh` fonts are expected: the CSP blocks Excalidraw's CDN fallback.
+- Never watch with one handle per folder (e.g. chokidar): on Windows it blocks renaming
+  Space folders. The watcher uses recursive `fs.watch` (one handle on the root).
 - Tall scrollers need `contain: strict`, or software-rendered canvases slow to a crawl
   (see the SPEC status section).
 - `ZENBOOK_USER_DATA`, `ZENBOOK_LIBRARY` are honoured only when the app is not packaged;

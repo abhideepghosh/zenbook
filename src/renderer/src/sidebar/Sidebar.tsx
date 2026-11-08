@@ -407,7 +407,12 @@ function SpaceHeader({ space }: { space: SpaceNode | null }) {
       type="button"
       className={styles.space}
       aria-label="Switch Space"
-      onClick={async () => void runMenuAction(await window.zenbook.ui.menu('spaces', space?.id))}
+      title="Switch Space (double-click to rename)"
+      onClick={async (e) => {
+        if (e.detail > 1) return // part of a double-click
+        void runMenuAction(await window.zenbook.ui.menu('spaces', space?.id))
+      }}
+      onDoubleClick={() => space && startRename(space.id)}
     >
       <span className={styles.spaceDot} />
       <span className={styles.spaceName}>{space?.name ?? 'No Space'}</span>

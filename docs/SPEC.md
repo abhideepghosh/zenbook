@@ -187,7 +187,7 @@ Zenbook/                         (default: Documents/Zenbook, chosen on first ru
   - Each path has its own write queue that keeps only the latest pending content.
 - **Deletes:** the item is hidden immediately and a 6 s Undo toast appears, then `shell.trashItem`. Pending deletes are committed on quit. On Linux, if no trash is available, items go to a root `.trash/` folder instead.
 - **External changes**
-  - chokidar ignores `*.tmp` and `.assets`.
+  - The watcher (Node's recursive `fs.watch`) ignores `*.tmp` and dot-folders such as `.assets`.
   - The app ignores its own writes by comparing the recorded mtime and size.
   - Structural changes trigger a debounced rescan, and the full tree is pushed to the renderer (about 100 KB for 1,000 pages).
 - **Conflicts**
@@ -245,7 +245,7 @@ Zenbook/                         (default: Documents/Zenbook, chosen on first ru
 | Where | Packages |
 | --- | --- |
 | Renderer (bundled) | `react`, `react-dom` 19 · `@excalidraw/excalidraw` 0.18.1 · `@codemirror/{state,view,commands,language,lang-markdown}` · `zustand` |
-| Main (bundled) | `chokidar` · `minisearch` · `zod` |
+| Main (bundled) | `minisearch` · `zod` (file watching uses Node's built-in `fs.watch`) |
 | Main (shipped in node_modules) | `electron-updater`, the only one, because it doesn't bundle cleanly |
 | Dev | `electron` 45 · `electron-vite` 6 · `vite` 8 · `@vitejs/plugin-react` · `typescript` **~6.0** (typescript-eslint doesn't support TS 7 yet) · `eslint` 10 + `typescript-eslint` + `eslint-plugin-react-hooks` · `prettier` · `vitest` · `@playwright/test` · `electron-builder` · `@types/*` |
 
