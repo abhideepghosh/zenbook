@@ -94,9 +94,8 @@ npm run check      # lint, typecheck, unit tests and end-to-end tests
 | `npm run fixture -- --pages 1000 --elements 2000 --out <dir>` | Generate a large library for performance testing     |
 | `npm run dist`                                                | Build installers for the current system into `dist/` |
 
-Releases: `npm version minor && git push --follow-tags`. The
-[release workflow](.github/workflows/release.yml) builds every platform and creates a draft
-GitHub Release; publish it and installed apps update.
+Releasing a new version (and setting up signing) is explained step by step in
+[docs/RELEASING.md](docs/RELEASING.md).
 
 The product spec and architecture are in [docs/SPEC.md](docs/SPEC.md). Contributions are
 welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
