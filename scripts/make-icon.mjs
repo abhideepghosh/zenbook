@@ -5,7 +5,7 @@
 //
 // Sources:
 //   build/icon.svg        master artwork, 1024 canvas on Apple's grid (824 tile at 100,100)
-//   build/icon-small.svg  simplified mark (ensō + stone, heavier stroke) for 16-32 px
+//   build/icon-small.svg  simplified mark (heavier ensō + bold pencil, no ripple) for 16-32 px
 // Outputs:
 //   build/icon.png         1024×1024, macOS grid with transparent margin. electron-builder
 //                          derives the .icns and the Linux icons from it.
