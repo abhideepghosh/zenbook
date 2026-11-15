@@ -32,6 +32,7 @@ const mod = window.zenbook.platform === 'darwin' ? '⌘' : 'Ctrl'
 const focusHideSidebar = focusWhenRequested('Hide sidebar')
 const ROW = 28 // px; every row in the tree has the same height
 const OVERSCAN = 10
+const DOUBLE_CLICK_MS = 300 // a click on the Space name waits this long for a second one
 
 // ---------- the tree as a flat list of rows ----------
 
@@ -406,6 +407,13 @@ function Tree({ space }: { space: SpaceNode }) {
 
 function SpaceHeader({ space }: { space: SpaceNode | null }) {
   const renaming = useStore((s) => (space ? s.renamingId === space.id : false))
+  // A native popup menu is modal (on macOS it blocks until dismissed), so a click waits
+  // out the double-click interval before opening it; a double-click renames instead.
+  const pendingMenu = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(pendingMenu.current), [])
+  const openMenu = async () => {
+    void runMenuAction(await window.zenbook.ui.menu('spaces', space?.id))
+  }
   if (space && renaming) {
     return (
       <div className={styles.spaceEditing}>
@@ -419,11 +427,16 @@ function SpaceHeader({ space }: { space: SpaceNode | null }) {
       className={styles.space}
       aria-label="Switch Space"
       title="Switch Space (double-click to rename)"
-      onClick={async (e) => {
+      onClick={(e) => {
+        clearTimeout(pendingMenu.current)
+        if (e.detail === 0) return void openMenu() // keyboard: no double-click to wait for
         if (e.detail > 1) return // part of a double-click
-        void runMenuAction(await window.zenbook.ui.menu('spaces', space?.id))
+        pendingMenu.current = setTimeout(() => void openMenu(), DOUBLE_CLICK_MS)
       }}
-      onDoubleClick={() => space && startRename(space.id)}
+      onDoubleClick={() => {
+        clearTimeout(pendingMenu.current)
+        if (space) startRename(space.id)
+      }}
     >
       <span className={styles.spaceDot} />
       <span className={styles.spaceName}>{space?.name ?? 'No Space'}</span>
