@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Zenbook at 16-32 px (the small .ico entries): the ensō and the red stone from
+       icon.svg, one heavy stroke and no ripple, so it stays crisp on a taskbar. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4A463F"/>
+      <stop offset="1" stop-color="#2B2A26"/>
+    </linearGradient>
+    <radialGradient id="stone" cx="517" cy="440" r="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EE9284"/>
+      <stop offset="0.55" stop-color="#DE7366"/>
+      <stop offset="1" stop-color="#BF5A50"/>
+    </radialGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#tile)"/>
+  <path d="M610.5 269.7C589 266.8 522.9 247.3 481.2 252.3C439.4 257.3 393.9 275.3 359.9 299.8C325.9 324.3 295.3 361.6 277.2 399.1C259 436.7 248.8 483.7 250.9 525.2C252.9 566.7 267.5 612.8 289.6 648.1C311.6 683.5 346.8 716.6 383.2 737C419.5 757.4 466.1 769.9 507.9 770.5C549.6 771.2 596.9 760.5 633.6 741C670.4 721.6 705.6 688.7 728.4 654.1C751.3 619.4 767.3 574.4 770.7 533.3C774.1 492.1 752.5 428.2 748.8 407.2" fill="none" stroke="#F7F2E8" stroke-width="92" stroke-linecap="round"/>
+  <path d="M647.8 441.9C657.5 463 658.1 495.9 648.7 517C639.4 538 614.2 559.2 591.5 568.1C568.9 577 535.1 579 513 570.4C491 561.9 468.6 538.2 459.1 517C449.6 495.8 447.4 464.6 456.1 443.4C464.8 422.1 489 398.5 511.4 389.7C533.9 380.8 567.9 381.6 590.6 390.3C613.4 399 638.1 420.8 647.8 441.9Z" fill="url(#stone)"/>
+</svg>

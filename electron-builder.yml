@@ -58,6 +58,9 @@ linux:
   synopsis: A calm notebook where every page is a canvas
   maintainer: Abhideep Ghosh <109783702+abhideepghosh@users.noreply.github.com>
   target: [AppImage, deb]
+  # Name the .desktop file after package.json desktopName, which Electron uses as the
+  # window app_id / WM_CLASS, so the running window gets the launcher icon.
+  syncDesktopName: true
 
 publish:
   provider: github

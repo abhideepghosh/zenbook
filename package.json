@@ -1,6 +1,7 @@
 {
   "name": "zenbook",
   "productName": "Zenbook",
+  "desktopName": "zenbook.desktop",
   "version": "0.1.0",
   "description": "A calm, local-first notebook where every page is an Excalidraw canvas.",
   "license": "MIT",
