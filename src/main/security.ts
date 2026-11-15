@@ -1,4 +1,5 @@
 import { app, session, shell } from 'electron'
+import { APP_ORIGIN, APP_URL } from './protocol'
 
 // Electron grants every permission unless told otherwise. Allow only what the
 // canvas needs (copy/paste images, fullscreen).
@@ -24,6 +25,23 @@ function sameSite(a: string, b: string): boolean {
   }
 }
 
+/**
+ * The only page the window may navigate to: our index (any hash or query), or the
+ * dev server in development. Reloads and in-page (hash) navigation never get here.
+ */
+function isAppPage(url: string): boolean {
+  try {
+    const target = new URL(url)
+    target.hash = ''
+    target.search = ''
+    if (target.href === APP_URL || target.href === APP_ORIGIN) return true
+  } catch {
+    return false
+  }
+  const devUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
+  return devUrl !== undefined && sameSite(url, devUrl)
+}
+
 export function hardenSecurity(): void {
   session.defaultSession.setPermissionRequestHandler((_contents, permission, callback) => {
     callback(ALLOWED_PERMISSIONS.has(permission))
@@ -35,7 +53,7 @@ export function hardenSecurity(): void {
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-attach-webview', (event) => event.preventDefault())
     contents.on('will-navigate', (event, url) => {
-      if (!sameSite(url, contents.getURL())) event.preventDefault()
+      if (!isAppPage(url)) event.preventDefault()
     })
     // Links on canvas elements open in the user's browser, never inside the app.
     contents.setWindowOpenHandler(({ url }) => {

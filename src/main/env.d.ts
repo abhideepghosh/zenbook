@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference types="electron-vite/node" />
 
 interface ImportMetaEnv {
   /** Set to "true" by the release workflow when the macOS build is signed and notarised. */

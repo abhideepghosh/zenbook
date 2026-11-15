@@ -3,11 +3,13 @@ import { autoUpdater } from 'electron-updater'
 import type { UpdateStatus } from '../shared/api'
 import { Channels } from '../shared/channels'
 import type { Updates } from './ipc'
+import type { Shutdown } from './shutdown'
 import type { StateStore } from './state'
 
 const RELEASES = 'https://github.com/abhideepghosh/zenbook/releases/latest'
 const FIRST_CHECK_MS = 10_000
 const EVERY_MS = 6 * 60 * 60 * 1000
+const INSTALL_FALLBACK_MS = 3000
 
 /**
  * Whether this build can replace itself:
@@ -29,6 +31,7 @@ function canSelfUpdate(): boolean {
 export function createUpdates(
   store: StateStore,
   window: () => BrowserWindow | null,
+  shutdown: Shutdown,
 ): Updates & { start(): void } {
   const selfUpdate = canSelfUpdate()
   const send = (status: UpdateStatus) => window()?.webContents.send(Channels.update, status)
@@ -46,7 +49,9 @@ export function createUpdates(
     // Development builds and disabled checks never touch the network.
     if (!app.isPackaged || (!manual && !store.data.prefs.autoUpdate)) return
     try {
-      await autoUpdater.checkForUpdates()
+      const result = await autoUpdater.checkForUpdates()
+      // With autoDownload the download runs on: a network failure there must not go unhandled.
+      result?.downloadPromise?.catch((err: unknown) => console.error('[updates] download:', err))
     } catch {
       // Same as above: nothing to tell the user.
     }
@@ -59,8 +64,16 @@ export function createUpdates(
     },
     check,
     install() {
-      // Quitting runs the usual shutdown (save, finish writes); the installer then takes over.
-      if (selfUpdate) setImmediate(() => autoUpdater.quitAndInstall())
+      if (!selfUpdate) return
+      // The installer kills the app soon after it starts: save everything first. The
+      // shutdown is then done, so the quit that quitAndInstall starts goes straight through.
+      void shutdown
+        .run()
+        .then(() => autoUpdater.quitAndInstall())
+        .catch((err: unknown) => console.error('[updates] install:', err))
+        // If the installer could not start, the library is closed all the same: quit
+        // rather than leave a window that can no longer save.
+        .finally(() => setTimeout(() => app.quit(), INSTALL_FALLBACK_MS))
     },
   }
 }

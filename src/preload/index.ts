@@ -14,9 +14,10 @@ function subscribe<T>(channel: string, cb: (value: T) => void): () => void {
 }
 
 const flushers = new Set<() => Promise<void>>()
-ipcRenderer.on(Channels.flush, () => {
-  void Promise.allSettled([...flushers].map((f) => f())).finally(() =>
-    ipcRenderer.send(Channels.flushed),
+// Each flush request carries an id; the answer echoes it so main matches it to its request.
+ipcRenderer.on(Channels.flush, (_event: IpcRendererEvent, id: unknown) => {
+  void Promise.allSettled([...flushers].map(async (f) => f())).finally(() =>
+    ipcRenderer.send(Channels.flushed, id),
   )
 })
 

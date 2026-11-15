@@ -73,8 +73,10 @@ export function handleAppProtocol(rendererDir: string): void {
     if (!file) return new Response(null, { status: 403 })
 
     const response = await net.fetch(pathToFileURL(file).toString())
-    const mime = MIME[extname(file).toLowerCase()]
-    const isHtml = file.endsWith('.html')
+    const ext = extname(file).toLowerCase()
+    const mime = MIME[ext]
+    // Case-insensitive: INDEX.HTML is the same file on Windows and macOS and needs the CSP too.
+    const isHtml = ext === '.html' || ext === '.htm'
     if (!mime && !isHtml) return response
 
     const headers = new Headers(response.headers)
