@@ -57,7 +57,12 @@ import {
 export interface LibraryDeps {
   /** Moves a file or folder to the OS trash. Injected so tests can fake it. */
   trash(path: string): Promise<void>
+  /** How long to wait for the OS trash before using the library's `.trash/` folder. */
+  trashTimeoutMs?: number
 }
+
+/** The OS trash can hang (seen on headless macOS); a delete must never wait on it forever. */
+const TRASH_TIMEOUT_MS = 10_000
 
 export interface LibraryEvents {
   tree: [Tree]
@@ -869,7 +874,20 @@ export class Library extends EventEmitter<LibraryEvents> {
   /** One item to the OS trash, falling back to the library's `.trash/` folder. */
   private async toTrash(path: string, name: string): Promise<void> {
     try {
-      await this.deps.trash(path)
+      const trashing = this.deps.trash(path)
+      trashing.catch(() => undefined) // it may still settle after we gave up on it
+      let timer: NodeJS.Timeout | undefined
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('the system trash didn’t respond')),
+          this.deps.trashTimeoutMs ?? TRASH_TIMEOUT_MS,
+        )
+      })
+      try {
+        await Promise.race([trashing, timeout])
+      } finally {
+        clearTimeout(timer)
+      }
     } catch (err) {
       try {
         const dir = this.p(TRASH_DIR)

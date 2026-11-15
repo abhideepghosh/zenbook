@@ -136,6 +136,7 @@ test('performance: a 2,000-element page opens within budget and search stays fas
 })
 
 test('Spaces can be named on creation and renamed later (folders are never locked)', async () => {
+  test.setTimeout(90_000) // waits out the watcher start and the 6 s undo window; slow on CI
   const dirs = makeDirs()
   try {
     const { app, win } = await launch(dirs)

@@ -252,6 +252,18 @@ describe('Library: delete with undo', () => {
     expect(readdirSync(join(root, '.trash'))[0]).toMatch(/Temp$/)
   })
 
+  it('falls back to a .trash folder when the OS trash never answers', async () => {
+    const lib = await Library.open(root, {
+      trash: () => new Promise<void>(() => undefined),
+      trashTimeoutMs: 50,
+    })
+    const s = await lib.create('space', null, 'Temp')
+    await lib.remove(s)
+    await lib.commitAllRemovals()
+    expect(readdirSync(join(root, '.trash'))[0]).toMatch(/Temp$/)
+    expect(existsSync(join(root, 'Temp'))).toBe(false)
+  })
+
   it('brings an item back, with a notice, when it cannot be trashed at all', async () => {
     const lib = await Library.open(root, {
       trash: async () => {
