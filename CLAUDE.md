@@ -75,6 +75,9 @@ build/                 icon.svg/png, macOS entitlements
   (see the SPEC status section).
 - `ZENBOOK_USER_DATA`, `ZENBOOK_LIBRARY` are honoured only when the app is not packaged;
   `ZENBOOK_PERF=1` logs timings.
+- Excalidraw never lets go of an image until it unmounts. Past 150 MB of image data
+  (`ZENBOOK_IMAGE_BUDGET_MB` overrides this, for tests), switching pages remounts it
+  (`Board` in Canvas.tsx, keyed by a generation number); the controller reattaches.
 - If GitHub release downloads fail (504), set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`
   and, for electron-builder, `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`.
   Both are checksum-verified.

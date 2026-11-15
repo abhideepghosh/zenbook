@@ -41,6 +41,8 @@ const paperLabel: Record<Paper, string> = {
 }
 
 async function loadInitialData(): Promise<ExcalidrawInitialDataState> {
+  // A remount reads the shape library again: write a pending change first.
+  await writeShapes()
   let libraryItems: LibraryItems = []
   try {
     const text = await window.zenbook.library.loadShapes()
@@ -125,7 +127,8 @@ function PaperMenuItems() {
 
 const mod = window.zenbook.platform === 'darwin' ? '⌘' : 'Ctrl'
 
-function Canvas() {
+/** One Excalidraw instance; Canvas swaps in a fresh one to free the images it holds. */
+function Board() {
   const theme = useStore((s) => (s.dark ? 'dark' : 'light'))
   const focus = useStore((s) => s.focus)
   // The controller waits for this too: Excalidraw resets the scene once it resolves.
@@ -155,8 +158,7 @@ function Canvas() {
   )
 
   return (
-    <div className={styles.wrap}>
-      <PaperLayer />
+    <>
       <Excalidraw
         excalidrawAPI={onApi}
         initialData={initialData}
@@ -190,6 +192,17 @@ function Canvas() {
           </WelcomeScreen.Center>
         </WelcomeScreen>
       </Excalidraw>
+    </>
+  )
+}
+
+function Canvas() {
+  const [generation, setGeneration] = useState(0)
+  useEffect(() => canvas.onRemount(() => setGeneration((g) => g + 1)), [])
+  return (
+    <div className={styles.wrap} data-canvas-generation={generation}>
+      <PaperLayer />
+      <Board key={generation} />
     </div>
   )
 }

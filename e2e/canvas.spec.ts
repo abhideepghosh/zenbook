@@ -81,6 +81,59 @@ test('pasted images are stored once in .assets, never inside the page', async ()
   }
 })
 
+test('leaving a page heavy with images frees them with a fresh canvas', async () => {
+  const dirs = makeDirs()
+  try {
+    // A tiny budget, so one small image counts as "too many".
+    const { app, win } = await launch(dirs, { ZENBOOK_IMAGE_BUDGET_MB: '0.0001' })
+    const wrap = win.locator('[data-canvas-generation]')
+    await openPageNamed(win, 'Blank page')
+    await win.locator('.excalidraw__canvas.interactive').click({ position: { x: 400, y: 300 } })
+    await win.evaluate(async () => {
+      const png = Uint8Array.from(
+        atob(
+          'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR4nGP8z8DwnwEJMDGgAcICAAa3AwCvz6FkAAAAAElFTkSuQmCC',
+        ),
+        (c) => c.charCodeAt(0),
+      )
+      const data = new DataTransfer()
+      data.items.add(new File([png], 'dot.png', { type: 'image/png' }))
+      document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }))
+    })
+    await expect
+      .poll(() => readScene(dirs, 'Blank page').elements.some((e) => e.type === 'image'), {
+        timeout: 15_000,
+      })
+      .toBe(true)
+    await expect(wrap).toHaveAttribute('data-canvas-generation', '0')
+
+    // Leaving it swaps in a fresh Excalidraw, which opens the next page and still saves.
+    await openPageNamed(win, 'Welcome')
+    await expect(wrap).toHaveAttribute('data-canvas-generation', '1')
+    await expect(win.locator('.excalidraw__canvas.interactive')).toBeVisible()
+    const before = readScene(dirs, 'Welcome').elements.filter((e) => e.type === 'rectangle').length
+    await drawRectangle(win)
+    await expect
+      .poll(() => readScene(dirs, 'Welcome').elements.filter((e) => e.type === 'rectangle').length)
+      .toBe(before + 1)
+
+    // Leaving a page with no images doesn't reset again.
+    await openPageNamed(win, 'Blank page')
+    await expect(wrap).toHaveAttribute('data-canvas-generation', '1')
+    // Its image was loaded into the fresh canvas again: leaving resets once more.
+    await win.waitForTimeout(1500) // images load just after the page opens
+    await openPageNamed(win, 'Welcome')
+    await expect(wrap).toHaveAttribute('data-canvas-generation', '2')
+    const scene = readScene(dirs, 'Blank page')
+    expect(scene.elements.filter((e) => e.type === 'image')).toHaveLength(1)
+    expect(scene.files).toEqual({})
+    await expect(win.getByRole('alert')).toHaveCount(0)
+    await app.close()
+  } finally {
+    cleanup(dirs)
+  }
+})
+
 test('notes are saved as Markdown and survive a relaunch; empty notes create no file', async () => {
   const dirs = makeDirs()
   try {

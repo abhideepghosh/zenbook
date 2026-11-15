@@ -31,10 +31,18 @@ export function cleanup(dirs: Dirs): void {
   }
 }
 
-export async function launch(dirs: Dirs): Promise<{ app: ElectronApplication; win: Page }> {
+export async function launch(
+  dirs: Dirs,
+  env: Record<string, string> = {},
+): Promise<{ app: ElectronApplication; win: Page }> {
   const app = await electron.launch({
     args: ['.'],
-    env: { ...process.env, ZENBOOK_USER_DATA: dirs.userData, ZENBOOK_LIBRARY: dirs.library },
+    env: {
+      ...process.env,
+      ZENBOOK_USER_DATA: dirs.userData,
+      ZENBOOK_LIBRARY: dirs.library,
+      ...env,
+    },
   })
   const win = await app.firstWindow()
   await win.setViewportSize({ width: 1400, height: 900 }).catch(() => undefined)

@@ -106,6 +106,8 @@ export interface ZenbookApi {
   platform: Platform
   /** ZENBOOK_PERF=1: log timings to the console (tests, fixtures). */
   perf: boolean
+  /** ZENBOOK_IMAGE_BUDGET_MB: image memory (MB) before the canvas resets; for tests. */
+  imageBudgetMB?: number
   app: {
     info(): Promise<AppInfo>
     /** Main asks the renderer to save everything before quitting. */

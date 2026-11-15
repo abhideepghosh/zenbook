@@ -26,6 +26,11 @@ const SAVE_DELAY_MS = 800
 const RETRY_DELAY_MS = 3000
 /** Matches the main process, which keeps the 200 most recent viewports. */
 const MAX_VIEWPORTS = 200
+/**
+ * Excalidraw keeps every image it was given until it unmounts (there is no API to drop
+ * one). Past this many bytes of image data, switching pages starts a fresh instance.
+ */
+const IMAGE_BUDGET_BYTES = (window.zenbook.imageBudgetMB ?? 150) * 1024 * 1024
 const perf = import.meta.env.DEV || window.zenbook.perf
 
 type Zoom = AppState['zoom']
@@ -82,6 +87,9 @@ class CanvasController implements PageEditor {
   private viewport: Viewport = { scrollX: 0, scrollY: 0, zoom: 1 }
   private exportOpen = false
   private paperListeners = new Set<(paper: Paper) => void>()
+  private remountListeners = new Set<() => void>()
+  /** A fresh Excalidraw was asked for and hasn't attached yet. */
+  private remounting = false
   private viewportListeners = new Set<(scrollX: number, scrollY: number, zoom: number) => void>()
 
   constructor() {
@@ -109,6 +117,7 @@ class CanvasController implements PageEditor {
     if (this.api === api) return
     if (this.api) this.detach()
     this.api = api
+    this.remounting = false
     editors.canvas = this
     const pageId = get().pageId
     if (pageId) void this.load(pageId)
@@ -141,6 +150,35 @@ class CanvasController implements PageEditor {
   /** The library root changed: images must be stored again in the new library. */
   clearStored(): void {
     this.stored.clear()
+  }
+
+  /** Canvas.tsx remounts Excalidraw when asked (to free the images it holds). */
+  onRemount(cb: () => void): () => void {
+    this.remountListeners.add(cb)
+    return () => this.remountListeners.delete(cb)
+  }
+
+  /** Bytes of image data Excalidraw is holding (base64 data URLs). */
+  private heldImageBytes(api: ExcalidrawImperativeAPI): number {
+    let bytes = 0
+    for (const file of Object.values(api.getFiles())) bytes += file.dataURL.length
+    return bytes
+  }
+
+  /**
+   * Leaving a page while Excalidraw holds too many images: start a fresh instance, which
+   * opens the current page with only its own images. Returns true when a remount began.
+   */
+  private remountIfHeavy(api: ExcalidrawImperativeAPI): boolean {
+    if (this.remounting) return true
+    if (this.remountListeners.size === 0) return false
+    const bytes = this.heldImageBytes(api)
+    if (bytes <= IMAGE_BUDGET_BYTES) return false
+    if (perf) console.log(`[perf] canvas reset to free ${Math.round(bytes / 1048576)} MB of images`)
+    this.remounting = true
+    this.prepared = false // the new instance needs its own initialData
+    for (const cb of this.remountListeners) cb()
+    return true
   }
 
   currentPage(): string | null {
@@ -446,6 +484,8 @@ class CanvasController implements PageEditor {
         if (!(await mayLeave(previous))) return
         if (stale()) return
       }
+      // Everything is saved now; the fresh instance loads the current page when it attaches.
+      if (previous !== pageId && this.remountIfHeavy(api)) return
     }
     this.loadingPageId = pageId
     if (previous && previous !== pageId) this.rememberViewport(previous)
