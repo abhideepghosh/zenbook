@@ -8,9 +8,10 @@ import type {
   LibraryItems,
   UIOptions,
 } from '@excalidraw/excalidraw/types'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { PAPERS, type Paper } from '../../../shared/api'
 import { reveal } from '../commands'
+import { onFlushAll } from '../editors'
 import { useStore } from '../store'
 import '../styles/excalidraw.css'
 import styles from './Canvas.module.css'
@@ -54,19 +55,32 @@ async function loadInitialData(): Promise<ExcalidrawInitialDataState> {
 }
 
 let shapesTimer: ReturnType<typeof setTimeout> | undefined
+let shapesPending: LibraryItems | null = null
 let shapesReady = false
+
+function writeShapes(): Promise<void> {
+  clearTimeout(shapesTimer)
+  const items = shapesPending
+  shapesPending = null
+  if (!items) return Promise.resolve()
+  return window.zenbook.library.saveShapes(serializeLibraryAsJSON(items)).catch((err: unknown) => {
+    console.error('Couldn’t save the shape library', err)
+  })
+}
+
 function saveShapes(items: LibraryItems): void {
   // Excalidraw reports the initial library too; only persist real changes.
   if (!shapesReady) {
     shapesReady = true
     return
   }
+  shapesPending = items
   clearTimeout(shapesTimer)
-  shapesTimer = setTimeout(
-    () => void window.zenbook.library.saveShapes(serializeLibraryAsJSON(items)),
-    500,
-  )
+  shapesTimer = setTimeout(() => void writeShapes(), 500)
 }
+
+// Quitting (or switching libraries) writes a pending shape-library change right away.
+onFlushAll(writeShapes)
 
 function onChange(elements: readonly ExcalidrawElement[], appState: AppState): void {
   canvas.onChange(elements, appState)
@@ -114,16 +128,28 @@ const mod = window.zenbook.platform === 'darwin' ? '⌘' : 'Ctrl'
 function Canvas() {
   const theme = useStore((s) => (s.dark ? 'dark' : 'light'))
   const focus = useStore((s) => s.focus)
-  const [initialData] = useState(loadInitialData)
+  // The controller waits for this too: Excalidraw resets the scene once it resolves.
+  const [initialData] = useState(() => canvas.prepare(loadInitialData))
+  const api = useRef<ExcalidrawImperativeAPI | null>(null)
 
-  const onApi = useCallback((api: ExcalidrawImperativeAPI) => canvas.attach(api), [])
-  useEffect(() => () => canvas.detach(), [])
+  const onApi = useCallback((instance: ExcalidrawImperativeAPI) => {
+    api.current = instance
+    canvas.attach(instance)
+  }, [])
+  // A layout effect, so detach runs before Excalidraw unmounts and empties its scene.
+  // Attaching here too covers StrictMode's unmount/remount (no new excalidrawAPI call).
+  useLayoutEffect(() => {
+    if (api.current) canvas.attach(api.current)
+    return () => canvas.detach()
+  }, [])
 
-  // Load whichever page becomes current.
+  // Load whichever page becomes current (or clear the canvas when there is none).
   useEffect(
     () =>
       useStore.subscribe((s, prev) => {
-        if (s.pageId && s.pageId !== prev.pageId) void canvas.load(s.pageId)
+        if (s.pageId === prev.pageId) return
+        if (s.pageId) void canvas.load(s.pageId)
+        else void canvas.unload()
       }),
     [],
   )

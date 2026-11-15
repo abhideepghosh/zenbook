@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Tree } from '../../shared/api'
-import { adjacentPage, dropIndex, fallbackPage, locatePage } from './tree'
+import { adjacentPage, dropIndex, fallbackPage, focusableRow, locatePage } from './tree'
 
 const page = (id: string) => ({ id, name: id, conflict: false })
 const tree: Tree = {
@@ -55,5 +55,23 @@ describe('tree helpers', () => {
     expect(dropIndex(ids, 'a', 'c', true)).toBe(2) // a after c → [b, c, a, d]
     expect(dropIndex(ids, 'd', 'a', false)).toBe(0)
     expect(dropIndex(['x', 'y'], 'new', 'y', true)).toBe(2) // from another chapter
+  })
+})
+
+describe('focusableRow', () => {
+  const rows = ['heading', 'page', 'heading', 'chapter', 'empty'].map((kind) => ({ kind }))
+
+  it('skips headings in the direction of travel', () => {
+    expect(focusableRow(rows, 2, 1)).toBe(3)
+    expect(focusableRow(rows, 2, -1)).toBe(1)
+    expect(focusableRow(rows, 4, 1)).toBe(4) // the "Empty. Add a page" row is focusable
+  })
+
+  it('turns back at either end (Home with pinned pages lands below the heading)', () => {
+    expect(focusableRow(rows, 0, 1)).toBe(1)
+    expect(focusableRow(rows, 0, -1)).toBe(1)
+    expect(focusableRow(rows, 99, -1)).toBe(4)
+    expect(focusableRow([{ kind: 'heading' }], 0, 1)).toBeNull()
+    expect(focusableRow([], 0, 1)).toBeNull()
   })
 })

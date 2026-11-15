@@ -24,10 +24,20 @@
   -webkit-app-region: no-drag;
 }
 
+.strip > * {
+  transition:
+    opacity var(--duration) var(--ease),
+    visibility 0s;
+}
+
+/* Hidden (not only transparent) once faded, so the buttons can't be tabbed to. */
 .strip[data-focus='true'] > * {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--duration) var(--ease);
+  transition:
+    opacity var(--duration) var(--ease),
+    visibility 0s linear var(--duration);
 }
 
 .breadcrumb {
@@ -184,6 +194,7 @@
 }
 
 .resize:hover,
+.resize:focus-visible,
 :global(html[data-resizing]) .resize {
   background: linear-gradient(
     to right,

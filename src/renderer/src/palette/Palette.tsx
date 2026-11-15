@@ -13,6 +13,7 @@ type Item =
   | { kind: 'action'; id: string; action: Action }
 
 const where: Record<string, string> = { notes: 'in notes', drawing: 'in drawing' }
+const NO_HITS: SearchHit[] = []
 
 function pageItem(hit: SearchHit): Item {
   const hint = hit.matchedIn.includes('title')
@@ -46,18 +47,26 @@ function PaletteBody({ seed }: { seed: string }) {
   const recent = useStore((s) => s.prefs.recent)
   const tree = useStore((s) => s.tree)
   const [query, setQuery] = useState(seed)
-  const [hits, setHits] = useState<SearchHit[]>([])
+  // Hits are kept with the query they answer, so a previous query's hits never show.
+  const [result, setResult] = useState<{ q: string; hits: SearchHit[] }>({ q: '', hits: [] })
   const [active, setActive] = useState(0)
   const list = useRef<HTMLDivElement>(null)
 
   const actionsOnly = query.startsWith('>')
   const text = actionsOnly ? query.slice(1).trim() : query.trim()
+  const hits = result.q === text ? result.hits : NO_HITS
 
   // Full-text search in the main process; stale answers are dropped.
   useEffect(() => {
     if (actionsOnly || !text) return
     let current = true
-    void window.zenbook.search.query(text).then((result) => current && setHits(result))
+    window.zenbook.search
+      .query(text)
+      .then((found) => current && setResult({ q: text, hits: found }))
+      .catch((err: unknown) => {
+        console.warn('Search failed', err)
+        if (current) setResult({ q: text, hits: [] })
+      })
     return () => {
       current = false
     }
@@ -94,9 +103,12 @@ function PaletteBody({ seed }: { seed: string }) {
     ]
   }, [actionsOnly, text, hits, recent, tree])
 
+  // Clamped, so a shorter list never leaves the highlight (or Enter) past its end.
+  const current = Math.max(0, Math.min(active, items.length - 1))
+
   useEffect(() => {
-    list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
-  }, [active])
+    list.current?.querySelector(`[data-index="${current}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [current])
 
   const choose = (item: Item | undefined) => {
     if (!item) return
@@ -106,9 +118,9 @@ function PaletteBody({ seed }: { seed: string }) {
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') setActive((i) => Math.min(i + 1, items.length - 1))
-    else if (e.key === 'ArrowUp') setActive((i) => Math.max(i - 1, 0))
-    else if (e.key === 'Enter') choose(items[active])
+    if (e.key === 'ArrowDown') setActive(Math.max(0, Math.min(current + 1, items.length - 1)))
+    else if (e.key === 'ArrowUp') setActive(Math.max(current - 1, 0))
+    else if (e.key === 'Enter') choose(items[current])
     else if (e.key === 'Escape') closePalette()
     else return
     e.preventDefault()
@@ -133,7 +145,7 @@ function PaletteBody({ seed }: { seed: string }) {
             spellCheck={false}
             aria-label="Search"
             aria-controls="palette-results"
-            aria-activedescendant={items[active] ? `palette-${active}` : undefined}
+            aria-activedescendant={items[current] ? `palette-${current}` : undefined}
             onChange={(e) => {
               setQuery(e.target.value)
               setActive(0)
@@ -154,7 +166,7 @@ function PaletteBody({ seed }: { seed: string }) {
                 id={`palette-${i}`}
                 data-index={i}
                 role="option"
-                aria-selected={i === active}
+                aria-selected={i === current}
                 className={styles.item}
                 onMouseMove={() => setActive(i)}
                 onMouseDown={(e) => {

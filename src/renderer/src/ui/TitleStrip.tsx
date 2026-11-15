@@ -1,14 +1,17 @@
 import { memo } from 'react'
 import { toggleNotes, toggleSidebar } from '../commands'
-import { useStore } from '../store'
+import { combineSave } from '../status'
+import { focusWhenRequested, useStore } from '../store'
 import { locatePage } from '../tree'
 import { Icon } from './icons'
 import styles from './ui.module.css'
 
 const mod = window.zenbook.platform === 'darwin' ? '⌘' : 'Ctrl'
+const focusShowSidebar = focusWhenRequested('Show sidebar')
 
 function SaveState() {
-  const state = useStore((s) => s.saveState)
+  // A string, so the selector stays stable.
+  const state = useStore((s) => combineSave(s.canvasSave, s.notesSave))
   const label = state === 'error' ? 'Not saved' : state === 'saved' ? 'Saved' : 'Saving…'
   return (
     <span className={styles.save} data-state={state} aria-live="polite">
@@ -40,7 +43,8 @@ function TitleStrip() {
         <button
           type="button"
           className={styles.iconButton}
-          onClick={toggleSidebar}
+          ref={focusShowSidebar}
+          onClick={() => toggleSidebar(true)}
           aria-label="Show sidebar"
           title={`Show sidebar (${mod} \\)`}
         >

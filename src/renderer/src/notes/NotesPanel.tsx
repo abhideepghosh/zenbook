@@ -38,9 +38,14 @@ function Footer() {
 
 function Title() {
   const pageId = useStore((s) => s.pageId)
-  const name = useStore((s) => locatePage(s.tree, s.pageId)?.page.name ?? '')
-  const [editing, setEditing] = useState(false)
   if (!pageId) return null
+  // Keyed by page: switching pages ends an edit instead of renaming the next page.
+  return <PageTitle key={pageId} pageId={pageId} />
+}
+
+function PageTitle({ pageId }: { pageId: string }) {
+  const name = useStore((s) => locatePage(s.tree, pageId)?.page.name ?? '')
+  const [editing, setEditing] = useState(false)
   if (editing) {
     return (
       <div className={styles.titleRow}>

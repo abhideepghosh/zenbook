@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { LibraryStatus } from '../../../shared/api'
-import { useStore } from '../store'
+import { set, useStore } from '../store'
 import styles from './ui.module.css'
 
 /** First run (and the error screen): choose where the notebook lives. */
@@ -13,6 +13,12 @@ export function Welcome({ onReady }: { onReady: (status: LibraryStatus) => void 
     setBusy(true)
     try {
       onReady(await window.zenbook.library.choose(kind))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({
+        status: 'error',
+        error: message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''),
+      })
     } finally {
       setBusy(false)
     }

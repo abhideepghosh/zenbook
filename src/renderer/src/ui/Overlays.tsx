@@ -1,4 +1,5 @@
-import { set, useStore } from '../store'
+import { topBanner } from '../status'
+import { setBanner, useStore } from '../store'
 import { Icon } from './icons'
 import styles from './ui.module.css'
 
@@ -20,8 +21,10 @@ export function Toast() {
 
 /** A persistent notice above the canvas (save errors, conflicts, unreadable pages). */
 export function Banner() {
-  const banner = useStore((s) => s.banner)
-  if (!banner) return null
+  // Plain strings from both selectors, so they stay stable.
+  const key = useStore((s) => topBanner(s.banners))
+  const banner = useStore((s) => (key ? (s.banners[key] ?? null) : null))
+  if (!key || !banner) return null
   return (
     <div className={styles.banner} role="alert">
       <span>{banner}</span>
@@ -29,7 +32,7 @@ export function Banner() {
         type="button"
         className={styles.iconButton}
         aria-label="Dismiss"
-        onClick={() => set({ banner: null })}
+        onClick={() => setBanner(key, null)}
       >
         <Icon name="close" size={14} />
       </button>

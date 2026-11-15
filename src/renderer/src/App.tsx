@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, type CSSProperties } from 'react'
 import type { LibraryStatus } from '../../shared/api'
 import styles from './App.module.css'
 import { applyTree, openPage } from './commands'
-import { flushAll, handleExternalChange } from './editors'
+import { flushForQuit, handleExternalChange } from './editors'
 import { installShortcuts } from './keys'
 import Palette from './palette/Palette'
 import Sidebar from './sidebar/Sidebar'
@@ -19,8 +19,9 @@ const NotesPanel = lazy(() => import('./notes/NotesPanel'))
 
 /** Shows a library once it's open: the last page, or the first one. */
 function applyStatus(status: LibraryStatus): void {
-  if (status.kind === 'none') return set({ status: 'none', error: null })
-  if (status.kind === 'error') return set({ status: 'error', error: status.message })
+  // Without a library no page is open, so reopening one really loads its page again.
+  if (status.kind === 'none') return set({ status: 'none', error: null, pageId: null })
+  if (status.kind === 'error') return set({ status: 'error', error: status.message, pageId: null })
   set({ status: 'ready', error: null, root: status.root, tree: status.tree })
   const { prefs } = get()
   const last =
@@ -31,12 +32,21 @@ function applyStatus(status: LibraryStatus): void {
 }
 
 async function boot(): Promise<void> {
-  const [prefs, status] = await Promise.all([
-    window.zenbook.prefs.get(),
-    window.zenbook.library.status(),
-  ])
-  set({ prefs })
-  applyStatus(status)
+  try {
+    const [prefs, status] = await Promise.all([
+      window.zenbook.prefs.get(),
+      window.zenbook.library.status(),
+    ])
+    set({ prefs })
+    applyStatus(status)
+  } catch (err) {
+    // Never leave a blank loading screen: show the library chooser with the reason.
+    console.error('Boot failed', err)
+    set({
+      status: 'error',
+      error: `Zenbook couldn’t open its library (${err instanceof Error ? err.message : String(err)}).`,
+    })
+  }
 }
 
 export function App() {
@@ -53,7 +63,7 @@ export function App() {
       window.zenbook.library.onTree(applyTree),
       window.zenbook.library.onNotice((message) => showToast({ message }, 9000)),
       window.zenbook.page.onExternalChange((id) => void handleExternalChange(id)),
-      window.zenbook.app.onFlush(flushAll),
+      window.zenbook.app.onFlush(flushForQuit),
       window.zenbook.app.onUpdate((update) => set({ update })),
     ]
     return () => offs.forEach((off) => off())

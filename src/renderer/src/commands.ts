@@ -1,6 +1,6 @@
 import type { Accent, NodeKind, Tree } from '../../shared/api'
-import { flushAll } from './editors'
-import { get, set, setPrefs, showToast } from './store'
+import { anyDirty, flushAll, mayLeave, unsavedPage } from './editors'
+import { get, set, setBanner, setPrefs, showToast } from './store'
 import { adjacentPage, fallbackPage, findSpace, firstPage, locateChapter, locatePage } from './tree'
 
 // Every user action lives here, so the sidebar, native menus, keyboard shortcuts
@@ -28,15 +28,47 @@ async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
 
 // ---------- navigation ----------
 
+/** Bumped by every navigation, so a switch still waiting for a save is dropped by a newer one. */
+let navToken = 0
+
 export function openPage(pageId: string | null): void {
-  const { tree, pageId: current, prefs } = get()
-  if (!pageId || pageId === current) return
-  const loc = locatePage(tree, pageId)
+  const { tree, pageId: current } = get()
+  if (!pageId) return
+  if (pageId === current) {
+    navToken++ // back on the open page: drop a switch still waiting for its save
+    return
+  }
   // Created a moment ago: IPC replies can overtake the tree event, so open it when the tree lands.
+  if (!locatePage(tree, pageId)) return set({ pendingPageId: pageId })
+  const token = ++navToken
+  if (!anyDirty()) return showPage(pageId)
+  // Save the open page first. If that fails, keep its edits in a copy and go on; if even
+  // that fails, stay on it (and keep retrying) so nothing is lost.
+  void (async () => {
+    await flushAll()
+    if (token !== navToken) return
+    const unsaved = unsavedPage()
+    if (unsaved && !(await mayLeave(unsaved))) return
+    if (token === navToken) showPage(pageId)
+  })()
+}
+
+function showPage(pageId: string): void {
+  const { tree, pageId: current, prefs } = get()
+  const loc = locatePage(tree, pageId)
   if (!loc) return set({ pendingPageId: pageId })
-  set({ pageId, spaceId: loc.space.id, banner: null, pendingPageId: null })
+  if (pageId === current) return
+  set({ pageId, spaceId: loc.space.id, pendingPageId: null })
+  setBanner('unreadable', null)
+  setBanner('conflict', null)
   const recent = [pageId, ...prefs.recent.filter((id) => id !== pageId)].slice(0, 20)
   setPrefs({ lastPageId: pageId, recent })
+}
+
+/** No page open (an empty Space). The editors keep the old page if its save failed. */
+function closePage(patch: { spaceId?: string | null } = {}): void {
+  navToken++
+  set({ ...patch, pageId: null })
 }
 
 export function switchSpace(spaceId: string): void {
@@ -48,7 +80,7 @@ export function switchSpace(spaceId: string): void {
   set({ spaceId })
   const target = remembered ?? firstPage(space)?.id ?? null
   if (target) openPage(target)
-  else set({ pageId: null })
+  else closePage()
 }
 
 export function switchSpaceByIndex(index: number): void {
@@ -66,11 +98,16 @@ export function applyTree(next: Tree): void {
   const { tree: previous, pageId, spaceId, pendingPageId } = get()
   set({ tree: next })
   if (pendingPageId && locatePage(next, pendingPageId)) return openPage(pendingPageId)
-  if (pageId && locatePage(next, pageId)) return
+  const open = locatePage(next, pageId)
+  if (open) {
+    // Moved to another Space (e.g. from another device): follow it there.
+    if (open.space.id !== spaceId) set({ spaceId: open.space.id })
+    return
+  }
   if (!pageId && spaceId && findSpace(next, spaceId) && !firstPage(findSpace(next, spaceId))) return
   const fallback = fallbackPage(previous, next, pageId, spaceId)
   if (fallback) openPage(fallback.id)
-  else set({ pageId: null, spaceId: findSpace(next, spaceId)?.id ?? next.spaces[0]?.id ?? null })
+  else closePage({ spaceId: findSpace(next, spaceId)?.id ?? next.spaces[0]?.id ?? null })
 }
 
 // ---------- create ----------
@@ -208,8 +245,11 @@ export async function reveal(id?: string | null): Promise<void> {
 
 // ---------- view ----------
 
-export function toggleSidebar(): void {
-  setPrefs({ sidebarOpen: !get().prefs.sidebarOpen })
+/** `focusCounterpart`: from the Hide/Show sidebar buttons, which unmount when clicked. */
+export function toggleSidebar(focusCounterpart = false): void {
+  const open = !get().prefs.sidebarOpen
+  setPrefs({ sidebarOpen: open })
+  if (focusCounterpart) set({ focusRequest: open ? 'Hide sidebar' : 'Show sidebar' })
 }
 
 export function toggleNotes(): void {
@@ -232,6 +272,9 @@ export async function changeLibrary(): Promise<void> {
   await flushAll()
   const status = await attempt(() => api().library.choose('pick'))
   if (status?.kind === 'ready') {
+    // A cancelled picker answers with the library that is already open: nothing to do.
+    if (status.root === get().root && get().status === 'ready') return
+    navToken++
     set({
       status: 'ready',
       root: status.root,
@@ -242,7 +285,9 @@ export async function changeLibrary(): Promise<void> {
     const first = firstPage(status.tree.spaces[0])
     if (first) openPage(first.id)
   } else if (status?.kind === 'error') {
-    set({ status: 'error', error: status.message })
+    navToken++
+    // pageId is cleared so reopening a library later really loads its page again.
+    set({ status: 'error', error: status.message, pageId: null, pendingPageId: null })
   }
 }
 

@@ -90,3 +90,22 @@ export function dropIndex(ids: string[], dragged: string, target: string, after:
   const at = without.indexOf(target)
   return at < 0 ? without.length : at + (after ? 1 : 0)
 }
+
+/**
+ * The row keyboard focus lands on when moving to row `i` in direction `step`:
+ * headings are skipped, and at either end the search turns back. Null if none.
+ */
+export function focusableRow(
+  rows: readonly { kind: string }[],
+  i: number,
+  step: 1 | -1,
+): number | null {
+  if (rows.length === 0) return null
+  const start = Math.max(0, Math.min(rows.length - 1, i))
+  for (const dir of [step, -step]) {
+    for (let n = start; n >= 0 && n < rows.length; n += dir) {
+      if (rows[n]!.kind !== 'heading') return n
+    }
+  }
+  return null
+}

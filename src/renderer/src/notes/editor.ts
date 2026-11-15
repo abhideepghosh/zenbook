@@ -148,8 +148,11 @@ const tasks = ViewPlugin.fromClass(
   },
 )
 
-/** Everything a note's EditorState needs; `onChange` fires on every document change. */
-export function notesExtensions(onChange: (doc: string) => void): Extension[] {
+/**
+ * Everything a note's EditorState needs. `onChange` fires on every document change,
+ * so it gets no arguments: reading the whole document per keystroke would be wasted work.
+ */
+export function notesExtensions(onChange: () => void, readOnly = false): Extension[] {
   return [
     history(),
     markdown({ base: markdownLanguage, addKeymap: true }),
@@ -170,13 +173,15 @@ export function notesExtensions(onChange: (doc: string) => void): Extension[] {
     placeholder('Notes for this page…'),
     theme,
     EditorView.updateListener.of((update) => {
-      if (update.docChanged) onChange(update.state.doc.toString())
+      if (update.docChanged) onChange()
     }),
+    // With no page open the editor stays empty and can't be typed into.
+    readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [],
   ]
 }
 
-export function createState(doc: string, onChange: (doc: string) => void): EditorState {
-  return EditorState.create({ doc, extensions: notesExtensions(onChange) })
+export function createState(doc: string, onChange: () => void, readOnly = false): EditorState {
+  return EditorState.create({ doc, extensions: notesExtensions(onChange, readOnly) })
 }
 
 export { EditorView, EditorState }

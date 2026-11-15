@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import type { Prefs, Tree, UpdateStatus } from '../../shared/api'
+import type { BannerKey, Banners, SaveState } from './status'
 
-export type SaveState = 'saved' | 'dirty' | 'saving' | 'error'
+export type { SaveState } from './status'
 
 export interface Toast {
   message: string
@@ -19,17 +20,22 @@ export interface UiState {
   dark: boolean
   /** Window narrower than 1200 px: notes become an overlay. */
   narrow: boolean
-  saveState: SaveState
+  /** Each editor reports its own save state; the title strip shows them combined. */
+  canvasSave: SaveState
+  notesSave: SaveState
   /** The item whose name is being edited inline (page, chapter or space). */
   renamingId: string | null
   focus: boolean
   paletteOpen: boolean
   paletteSeed: string
   toast: Toast | null
-  banner: string | null
+  /** Persistent notices above the canvas, one slot per source. */
+  banners: Banners
   update: UpdateStatus
   /** A page just created whose tree update hasn't arrived yet. */
   pendingPageId: string | null
+  /** A button that should take focus once it has rendered (by aria-label). */
+  focusRequest: string | null
 }
 
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -56,15 +62,17 @@ export const useStore = create<UiState>()(() => ({
   },
   dark: darkQuery.matches,
   narrow: narrowQuery.matches,
-  saveState: 'saved',
+  canvasSave: 'saved',
+  notesSave: 'saved',
   renamingId: null,
   focus: false,
   paletteOpen: false,
   paletteSeed: '',
   toast: null,
-  banner: null,
+  banners: {},
   update: { kind: 'idle' },
   pendingPageId: null,
+  focusRequest: null,
 }))
 
 darkQuery.addEventListener('change', (e) => useStore.setState({ dark: e.matches }))
@@ -76,7 +84,31 @@ export const set = useStore.setState
 /** Updates preferences locally and persists them in the main process. */
 export function setPrefs(patch: Partial<Prefs>): void {
   set((s) => ({ prefs: { ...s.prefs, ...patch } }))
-  void window.zenbook.prefs.set(patch)
+  window.zenbook.prefs.set(patch).catch((err: unknown) => {
+    console.warn('Couldn’t save preferences', err)
+  })
+}
+
+/** Shows (or, with null, clears) one banner slot. A no-op when nothing changes. */
+export function setBanner(key: BannerKey, message: string | null): void {
+  const banners = get().banners
+  if ((banners[key] ?? null) === message) return
+  const next = { ...banners }
+  if (message === null) delete next[key]
+  else next[key] = message
+  set({ banners: next })
+}
+
+/**
+ * A ref callback that focuses its button when it mounts in answer to a focus request
+ * (e.g. "Hide sidebar" gets focus after "Show sidebar" was clicked and unmounted).
+ */
+export function focusWhenRequested(label: string): (el: HTMLElement | null) => void {
+  return (el) => {
+    if (!el || get().focusRequest !== label) return
+    set({ focusRequest: null })
+    el.focus()
+  }
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined

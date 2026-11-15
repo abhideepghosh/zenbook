@@ -21,14 +21,15 @@ import {
   startRename,
   toggleSidebar,
 } from '../commands'
-import { setPrefs, useStore } from '../store'
-import { dropIndex, findSpace, locatePage } from '../tree'
+import { focusWhenRequested, setPrefs, useStore } from '../store'
+import { dropIndex, findSpace, focusableRow, locatePage } from '../tree'
 import { Icon } from '../ui/icons'
 import { RenameInput } from '../ui/RenameInput'
 import { UpdatePill } from '../ui/UpdatePill'
 import styles from './Sidebar.module.css'
 
 const mod = window.zenbook.platform === 'darwin' ? '⌘' : 'Ctrl'
+const focusHideSidebar = focusWhenRequested('Hide sidebar')
 const ROW = 28 // px; every row in the tree has the same height
 const OVERSCAN = 10
 
@@ -260,6 +261,7 @@ function Tree({ space }: { space: SpaceNode }) {
   const scroller = useRef<HTMLDivElement>(null)
   const [view, setView] = useState({ top: 0, height: 800 })
   const pendingFocus = useRef<number | null>(null)
+  const scrolledTo = useRef<string | null>(null)
 
   useLayoutEffect(() => {
     const el = scroller.current
@@ -271,13 +273,16 @@ function Tree({ space }: { space: SpaceNode }) {
     return () => observer.disconnect()
   }, [])
 
-  // Keep the open page in view when it changes (palette, shortcuts).
+  // Keep the open page in view when it changes (palette, shortcuts), not on every tree
+  // change. A page whose row hasn't arrived yet (just created) is scrolled to when it does.
   useEffect(() => {
     const el = scroller.current
+    if (!el || scrolledTo.current === pageId) return
     const i = rows.findIndex(
       (r) => r.kind === 'page' && r.page.id === pageId && !r.key.startsWith('pin-'),
     )
-    if (!el || i < 0) return
+    if (i < 0) return
+    scrolledTo.current = pageId
     const top = i * ROW
     if (top < el.scrollTop || top + ROW > el.scrollTop + el.clientHeight)
       el.scrollTop = top - el.clientHeight / 3
@@ -293,10 +298,11 @@ function Tree({ space }: { space: SpaceNode }) {
   const first = Math.max(0, Math.floor(view.top / ROW) - OVERSCAN)
   const last = Math.min(rows.length, Math.ceil((view.top + view.height) / ROW) + OVERSCAN)
 
-  const focusRow = (i: number) => {
+  /** Focuses row `i`, skipping headings in the direction of travel. */
+  const focusRow = (i: number, step: 1 | -1) => {
     const el = scroller.current
-    if (!el || rows.length === 0) return
-    const index = Math.max(0, Math.min(rows.length - 1, i))
+    const index = focusableRow(rows, i, step)
+    if (!el || index === null) return
     if (index * ROW < el.scrollTop) el.scrollTop = index * ROW
     else if ((index + 1) * ROW > el.scrollTop + el.clientHeight)
       el.scrollTop = (index + 1) * ROW - el.clientHeight
@@ -307,14 +313,16 @@ function Tree({ space }: { space: SpaceNode }) {
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement
-    const id = target.dataset.id
-    if (!id || target.dataset.index === undefined) return
+    if (target.dataset.index === undefined) return
     const i = Number(target.dataset.index)
     const kind = target.dataset.kind
-    if (e.key === 'ArrowDown') focusRow(i + 1)
-    else if (e.key === 'ArrowUp') focusRow(i - 1)
-    else if (e.key === 'Home') focusRow(0)
-    else if (e.key === 'End') focusRow(rows.length - 1)
+    // Rows without an id ("Empty. Add a page") take part in arrow navigation only.
+    const id = target.dataset.id
+    if (e.key === 'ArrowDown') focusRow(i + 1, 1)
+    else if (e.key === 'ArrowUp') focusRow(i - 1, -1)
+    else if (e.key === 'Home') focusRow(0, 1)
+    else if (e.key === 'End') focusRow(rows.length - 1, -1)
+    else if (!id) return
     else if (e.key === 'F2') startRename(id)
     else if (e.key === 'Delete' || (e.key === 'Backspace' && (e.metaKey || e.ctrlKey))) {
       void removeItem(id, kind === 'chapter' ? 'chapter' : 'page')
@@ -370,6 +378,8 @@ function Tree({ space }: { space: SpaceNode }) {
               {row.kind === 'empty' && (
                 <button
                   type="button"
+                  data-index={index}
+                  data-kind="empty"
                   className={`${styles.row} ${styles.page} ${styles.hint}`}
                   onClick={() => void newPage(row.chapter.id)}
                 >
@@ -434,7 +444,8 @@ function Sidebar() {
         <button
           type="button"
           className={`${styles.iconButton} ${styles.collapse}`}
-          onClick={toggleSidebar}
+          ref={focusHideSidebar}
+          onClick={() => toggleSidebar(true)}
           aria-label="Hide sidebar"
           title={`Hide sidebar (${mod} \\)`}
         >
@@ -448,7 +459,7 @@ function Sidebar() {
         <kbd className={styles.kbd}>{mod} K</kbd>
       </button>
 
-      {space ? <Tree space={space} /> : <div className={styles.scroll} />}
+      {space ? <Tree key={space.id} space={space} /> : <div className={styles.scroll} />}
 
       <div className={styles.footer}>
         <button
