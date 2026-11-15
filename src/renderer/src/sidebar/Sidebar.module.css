@@ -23,6 +23,12 @@
   padding-left: 80px; /* room for the traffic lights */
 }
 
+/* The hide-sidebar button sits at the strip's right edge. */
+.collapse {
+  flex: none;
+  margin-left: auto;
+}
+
 /* ---------- Space switcher ---------- */
 
 .space {

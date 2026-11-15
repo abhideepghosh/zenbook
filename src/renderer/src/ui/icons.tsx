@@ -14,10 +14,19 @@ const paths = {
       <path d="M15 4v16" />
     </>
   ),
-  panelLeft: (
+  // A panel with an arrow saying where it will go: hide (‹) and show (›).
+  panelLeftClose: (
     <>
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M9 4v16" />
+      <path d="m16 15-3-3 3-3" />
+    </>
+  ),
+  panelLeftOpen: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+      <path d="m14 9 3 3-3 3" />
     </>
   ),
   close: <path d="M6 6l12 12M18 6 6 18" />,

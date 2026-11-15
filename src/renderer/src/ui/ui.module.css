@@ -14,6 +14,11 @@
   padding-right: calc(var(--wco-inset) + var(--space-3));
 }
 
+/* With the sidebar hidden, this strip sits under the macOS traffic lights. */
+:global([data-platform='darwin']) .strip[data-sidebar='false'] {
+  padding-left: 80px;
+}
+
 .strip button,
 .strip input {
   -webkit-app-region: no-drag;

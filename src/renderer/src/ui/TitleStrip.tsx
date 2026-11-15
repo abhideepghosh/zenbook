@@ -30,15 +30,21 @@ function TitleStrip() {
   const atWindowEdge = !notesOpen || narrow || focus
 
   return (
-    <div className={styles.strip} data-focus={focus} data-edge={atWindowEdge}>
+    <div
+      className={styles.strip}
+      data-focus={focus}
+      data-edge={atWindowEdge}
+      data-sidebar={sidebarOpen && !focus}
+    >
       {!sidebarOpen && (
         <button
           type="button"
           className={styles.iconButton}
           onClick={toggleSidebar}
+          aria-label="Show sidebar"
           title={`Show sidebar (${mod} \\)`}
         >
-          <Icon name="panelLeft" />
+          <Icon name="panelLeftOpen" />
         </button>
       )}
       <div className={styles.breadcrumb}>

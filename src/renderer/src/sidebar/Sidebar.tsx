@@ -19,6 +19,7 @@ import {
   removeItem,
   runMenuAction,
   startRename,
+  toggleSidebar,
 } from '../commands'
 import { setPrefs, useStore } from '../store'
 import { dropIndex, findSpace, locatePage } from '../tree'
@@ -430,6 +431,15 @@ function Sidebar() {
     <nav className={styles.sidebar} aria-label="Library">
       <div className={styles.strip}>
         <SpaceHeader space={space} />
+        <button
+          type="button"
+          className={`${styles.iconButton} ${styles.collapse}`}
+          onClick={toggleSidebar}
+          aria-label="Hide sidebar"
+          title={`Hide sidebar (${mod} \\)`}
+        >
+          <Icon name="panelLeftClose" />
+        </button>
       </div>
 
       <button type="button" className={styles.search} onClick={() => openPalette()}>
