@@ -28,7 +28,11 @@ export function watchLibrary(lib: Library): () => Promise<void> {
   let rescanTimer: NodeJS.Timeout | undefined
   const rescanSoon = () => {
     clearTimeout(rescanTimer)
-    rescanTimer = setTimeout(() => void lib.rescan().catch(() => undefined), 250)
+    // A failed rescan keeps the last good model; the user hears about it (once).
+    rescanTimer = setTimeout(
+      () => void lib.rescan().catch((err: unknown) => lib.reportRescanFailure(err)),
+      250,
+    )
   }
 
   const inspect = async (path: string): Promise<void> => {

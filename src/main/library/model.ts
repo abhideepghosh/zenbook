@@ -14,6 +14,8 @@ export const SPACE_FILE = 'space.json'
 export const CHAPTER_FILE = 'chapter.json'
 export const SHAPES_FILE = 'library.excalidrawlib'
 export const SOURCE = 'https://github.com/abhideepghosh/zenbook'
+/** Largest scene Zenbook reads or writes (import and the save IPC share this limit). */
+export const MAX_SCENE_BYTES = 64 * 1024 * 1024
 
 export interface PageRec {
   id: string

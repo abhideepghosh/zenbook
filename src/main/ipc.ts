@@ -11,17 +11,31 @@ import {
 import { z } from 'zod'
 import { ACCENTS, type AppInfo, type Prefs } from '../shared/api'
 import { Channels } from '../shared/channels'
+import { MAX_SCENE_BYTES } from './library/model'
 import { showMenu } from './menus'
 import { APP_ORIGIN } from './protocol'
 import type { Session } from './session'
 import { applyPrefs, PrefsPatch, type StateStore } from './state'
 
+const originOf = (url: string): string | null => {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
+
 /** Only our own renderer may call the API, never a frame or page it navigated to. */
 function isTrustedSender(event: IpcMainInvokeEvent): boolean {
   const url = event.senderFrame?.url
   if (!url) return false
-  const devUrl = process.env.ELECTRON_RENDERER_URL
-  return url.startsWith(APP_ORIGIN) || (devUrl !== undefined && url.startsWith(devUrl))
+  if (url.startsWith(APP_ORIGIN)) return true
+  // The dev server, in development only: a packaged build ignores ELECTRON_RENDERER_URL.
+  // Exact origins, so http://localhost:51730 is not mistaken for http://localhost:5173.
+  const devUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
+  if (!devUrl) return false
+  const devOrigin = originOf(devUrl)
+  return devOrigin !== null && devOrigin !== 'null' && originOf(url) === devOrigin
 }
 
 /**
@@ -44,7 +58,7 @@ function handle<S extends z.ZodTuple, R>(
 const MB = 1024 * 1024
 const id = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/)
 const name = z.string().max(300)
-const scene = z.string().max(64 * MB)
+const scene = z.string().max(MAX_SCENE_BYTES)
 const text = z.string().max(16 * MB)
 const asset = z.object({
   id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
@@ -97,9 +111,14 @@ export function registerIpc({ session, store, updates, window }: IpcDeps): void 
 
   // Pages
   handle(Channels.pageOpen, z.tuple([id]), ([pageId]) => lib().readPage(pageId))
-  handle(Channels.pageSaveScene, z.tuple([id, scene, text]), async ([pageId, json, drawing]) => {
+  // The renderer still sends its own idea of the drawing text as a third argument; it
+  // is accepted for compatibility but ignored: main extracts the text from the scene
+  // it writes, the same way the startup reconcile does.
+  handle(Channels.pageSaveScene, z.tuple([id, scene, text.optional()]), async ([pageId, json]) => {
     await lib().saveScene(pageId, json)
-    await session.search?.update(pageId, { drawing })
+    const search = session.search
+    // Parsing a large scene shouldn't hold up the save's reply.
+    if (search) setImmediate(() => void search.sceneSaved(pageId, json).catch(() => undefined))
   })
   handle(Channels.pageSaveNotes, z.tuple([id, text]), async ([pageId, md]) => {
     await lib().saveNotes(pageId, md)

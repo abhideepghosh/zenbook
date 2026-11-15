@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
 import { readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { app, dialog, shell, type BrowserWindow } from 'electron'
 import type { LibraryStatus } from '../shared/api'
 import { Channels } from '../shared/channels'
-import { exists } from './library/fsx'
+import { exists, isMissing } from './library/fsx'
 import { Library } from './library/library'
 import { LIBRARY_FILE } from './library/model'
 import { SearchIndex } from './library/search'
@@ -84,11 +84,13 @@ export class Session {
     return this.openAt(await resolveLibraryRoot(path), true)
   }
 
-  private openAt(path: string, remember: boolean): Promise<LibraryStatus> {
+  private openAt(rawPath: string, remember: boolean): Promise<LibraryStatus> {
+    const path = resolve(rawPath)
     this.opening = (async (): Promise<LibraryStatus> => {
       try {
         await this.close()
-        const isNew = !(await exists(join(path, LIBRARY_FILE)))
+        // Strict: a zenbook.json we merely can't stat (permissions) is not a new library.
+        const isNew = await isMissing(join(path, LIBRARY_FILE))
         const lib = await Library.open(path, { trash: (p) => shell.trashItem(p) })
         if (isNew) await seedLibrary(lib)
         this.attach(lib)
@@ -113,11 +115,10 @@ export class Session {
     )
     this.search = search
 
-    lib.on('tree', (tree) => {
-      search.syncTree(lib.model)
-      this.send(Channels.tree, tree)
-    })
+    // The search index follows the library itself (tree changes, deleted pages).
+    lib.on('tree', (tree) => this.send(Channels.tree, tree))
     lib.on('notice', (message) => this.send(Channels.notice, message))
+    lib.replayNotices() // e.g. a metadata file that couldn't be read while opening
     lib.on('pageChanged', (id) => {
       void search.refreshPage(id)
       this.send(Channels.pageExternalChange, id)
@@ -141,6 +142,7 @@ export class Session {
       lib.removeAllListeners()
       await lib.close()
     }
+    this.search?.dispose()
     if (this.search) await this.search.save()
     this.search = null
   }

@@ -1,14 +1,35 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { atomicWrite, WriteQueue } from './fsx'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { atomicWrite, readJsonFile, TEMP_FILE, WriteQueue } from './fsx'
+
+// Makes the next file handle's writeFile fail, as a full disk would.
+const faults = vi.hoisted(() => ({ writeFile: false }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args)
+      if (faults.writeFile) {
+        handle.writeFile = async () => {
+          throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' })
+        }
+      }
+      return handle
+    },
+  }
+})
 
 let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'zenbook-fsx-'))
 })
-afterEach(() => rmSync(dir, { recursive: true, force: true }))
+afterEach(() => {
+  faults.writeFile = false
+  rmSync(dir, { recursive: true, force: true })
+})
 
 describe('atomicWrite', () => {
   it('replaces the file and leaves no temp files behind', async () => {
@@ -17,6 +38,23 @@ describe('atomicWrite', () => {
     await atomicWrite(file, 'new')
     expect(readFileSync(file, 'utf8')).toBe('new')
     expect(readdirSync(dir)).toEqual(['page.excalidraw'])
+  })
+
+  it('removes its temp file when the write itself fails', async () => {
+    const file = join(dir, 'page.excalidraw')
+    writeFileSync(file, 'old')
+    faults.writeFile = true
+    await expect(atomicWrite(file, 'new')).rejects.toThrow(/ENOSPC/)
+    expect(readdirSync(dir)).toEqual(['page.excalidraw'])
+    expect(readFileSync(file, 'utf8')).toBe('old')
+  })
+
+  it('names temp files so the sweep can recognise them', async () => {
+    expect(TEMP_FILE.test('Lecture 1.excalidraw.deadbeef.tmp')).toBe(true)
+    expect(TEMP_FILE.test('space.json.0123abcd.tmp')).toBe(true)
+    expect(TEMP_FILE.test('report.tmp')).toBe(false)
+    expect(TEMP_FILE.test('a.excalidraw.deadbeef.tmp.bak')).toBe(false)
+    expect(TEMP_FILE.test('a.excalidraw.DEADBEE.tmp')).toBe(false)
   })
 
   it('a crash between writing and renaming leaves the original intact', async () => {
@@ -55,5 +93,19 @@ describe('WriteQueue', () => {
     for (let i = 0; i < 20; i++) void queue.write(join(dir, `f${i % 3}.txt`), String(i))
     await queue.drain()
     expect(readdirSync(dir).sort()).toEqual(['f0.txt', 'f1.txt', 'f2.txt'])
+  })
+})
+
+describe('readJsonFile', () => {
+  it('tells missing files from unreadable ones', async () => {
+    expect(await readJsonFile(join(dir, 'nope.json'))).toEqual({ status: 'missing' })
+    writeFileSync(join(dir, 'bad.json'), '{ nope')
+    expect((await readJsonFile(join(dir, 'bad.json'))).status).toBe('unreadable')
+    writeFileSync(join(dir, 'list.json'), '[1, 2]')
+    expect((await readJsonFile(join(dir, 'list.json'))).status).toBe('unreadable')
+    writeFileSync(join(dir, 'ok.json'), '{"id": "x"}')
+    expect(await readJsonFile(join(dir, 'ok.json'))).toEqual({ status: 'ok', value: { id: 'x' } })
+    // A folder where a file should be can't be read either; it isn't "missing".
+    expect((await readJsonFile(dir)).status).toBe('unreadable')
   })
 })

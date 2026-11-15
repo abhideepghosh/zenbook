@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -66,14 +66,84 @@ describe('SearchIndex', () => {
     await index.update(raft, { drawing: 'Heartbeat timeout' })
     expect(index.query('heartbeat')[0]?.pageId).toBe(raft)
 
-    // Renames and deletions follow the tree.
+    // Renames and deletions follow the library on their own (no manual syncTree).
     await lib.rename(raft, 'Consensus')
-    index.syncTree(lib.model)
     expect(index.query('consensus')[0]?.title).toBe('Consensus')
+    // A page in its undo window drops out of search, and comes back on undo.
+    await lib.remove(paxos)
+    expect(index.query('acceptor')).toEqual([])
+    expect(index.query('paxos')).toEqual([])
+    await lib.undoRemove(paxos)
+    expect(index.query('acceptor')[0]?.pageId).toBe(paxos)
+    // Once the deletion commits it is gone for good (the tree doesn't change then).
     await lib.remove(paxos)
     await lib.commitAllRemovals()
-    index.syncTree(lib.model)
     expect(index.query('acceptor')).toEqual([])
+    expect(index.query('paxos')).toEqual([])
+  })
+
+  it('drops pages of a deleted chapter, including from the cache', async () => {
+    const lib = await Library.open(root, deps)
+    const space = await lib.create('space', null, 'Work')
+    const chapter = await lib.create('chapter', space, 'Old')
+    const page = await lib.create('page', chapter, 'Leftover')
+    await lib.saveNotes(page, 'forgotten words')
+    const file = join(cacheDir, 'search.json')
+    const index = new SearchIndex(lib, file)
+    await index.reconcile()
+    await lib.remove(chapter)
+    expect(index.query('forgotten')).toEqual([])
+    await lib.commitAllRemovals()
+    await index.save()
+    expect(readFileSync(file, 'utf8')).not.toContain(page)
+  })
+
+  it('indexes a saved scene the way reconcile does (original text and frame names)', async () => {
+    const lib = await Library.open(root, deps)
+    const space = await lib.create('space', null, 'Work')
+    const chapter = await lib.create('chapter', space, 'Notes')
+    const page = await lib.create('page', chapter, 'Sketch')
+    const index = new SearchIndex(lib, join(cacheDir, 'search.json'))
+    await index.reconcile()
+    const scene = JSON.parse(emptyScene(page))
+    scene.elements = [
+      // Excalidraw wraps long text: `text` has line breaks, `originalText` doesn't.
+      { id: 't1', type: 'text', text: 'Quorum\nintersection', originalText: 'Quorum intersection' },
+      { id: 'f1', type: 'frame', name: 'Membership' },
+    ]
+    const json = JSON.stringify(scene)
+    await lib.saveScene(page, json)
+    await index.sceneSaved(page, json)
+    expect(index.query('quorum intersection')[0]?.pageId).toBe(page)
+    expect(index.query('membership')[0]).toMatchObject({ pageId: page, matchedIn: ['drawing'] })
+    // And it agrees with what a later reconcile extracts, so nothing flips back.
+    await index.reconcile()
+    expect(index.query('membership')[0]?.pageId).toBe(page)
+  })
+
+  it('reads the content of pages that appear after startup', async () => {
+    const lib = await Library.open(root, deps)
+    const space = await lib.create('space', null, 'Work')
+    const chapter = await lib.create('chapter', space, 'Notes')
+    await lib.create('page', chapter, 'Existing')
+    const index = new SearchIndex(lib, join(cacheDir, 'search.json'))
+    await index.reconcile()
+
+    // A sync tool drops in a page (the watcher would trigger this rescan).
+    writeFileSync(
+      join(root, 'Work', 'Notes', 'From phone.excalidraw'),
+      sceneWith('phone-page-0001', ['Grocery list']),
+    )
+    writeFileSync(join(root, 'Work', 'Notes', 'From phone.md'), 'remember the oat milk')
+    await lib.rescan()
+    await index.idle()
+    expect(index.query('grocery')[0]?.pageId).toBe('phone-page-0001')
+    expect(index.query('oat milk')[0]?.pageId).toBe('phone-page-0001')
+
+    // So does a duplicate made in the app.
+    const copy = await lib.duplicate('phone-page-0001')
+    await index.idle()
+    expect(index.query('grocery').map((h) => h.pageId)).toContain(copy)
   })
 
   it('reuses its cache, re-reading only pages changed since', async () => {

@@ -67,13 +67,39 @@ export class SearchIndex {
   private readonly cache = new Map<string, Cached>()
   private readonly docs = new Map<string, Doc>()
   private saveTimer: NodeJS.Timeout | undefined
+  /** Pages in the tree with no extracted text yet (created, imported, synced in). */
+  private readonly unfilled = new Set<string>()
+  private filling: Promise<void> | null = null
+  /** Filling starts after the first reconcile, so it never competes with startup. */
+  private reconciled = false
+  private disposed = false
 
+  /**
+   * Follows the library: titles track the tree (pages in their undo window drop
+   * out and come back on undo) and deleted pages leave the index for good.
+   */
   constructor(
     private readonly lib: Library,
     private readonly cacheFile: string,
   ) {
     this.loadCache()
     this.syncTree(lib.model)
+    lib.on('tree', () => this.syncTree(lib.model))
+    lib.on('pageRemoved', (id) => this.remove(id))
+  }
+
+  /** Stops background work (the library is closing). */
+  dispose(): void {
+    this.disposed = true
+    this.unfilled.clear()
+  }
+
+  /** Forgets a page that was deleted. */
+  remove(id: string): void {
+    if (this.mini.has(id)) this.mini.discard(id)
+    this.docs.delete(id)
+    this.unfilled.delete(id)
+    if (this.cache.delete(id)) this.scheduleSave()
   }
 
   private static create() {
@@ -124,13 +150,22 @@ export class SearchIndex {
     this.docs.set(doc.id, doc)
   }
 
-  /** Keeps titles in step with the tree and drops pages that no longer exist. */
+  /**
+   * Keeps titles in step with the tree and drops pages that no longer exist. Pages
+   * waiting in their undo window are left out, but their cached text is kept so an
+   * undo brings them straight back.
+   */
   syncTree(model: Model): void {
     const seen = new Set<string>()
+    const inModel = new Set<string>()
+    const hidden = (id: string) => this.lib.isPendingRemoval(id)
     for (const space of model.spaces) {
       for (const chapter of space.chapters) {
         for (const page of chapter.pages) {
+          inModel.add(page.id)
+          if (hidden(space.id) || hidden(chapter.id) || hidden(page.id)) continue
           seen.add(page.id)
+          if (!this.cache.has(page.id)) this.unfilled.add(page.id)
           const cached = this.cache.get(page.id)
           const prev = this.docs.get(page.id)
           const doc: Doc = {
@@ -159,9 +194,35 @@ export class SearchIndex {
       if (!seen.has(id)) {
         this.mini.discard(id)
         this.docs.delete(id)
-        this.cache.delete(id)
       }
     }
+    for (const id of [...this.cache.keys()]) if (!inModel.has(id)) this.cache.delete(id)
+    for (const id of [...this.unfilled]) if (!seen.has(id)) this.unfilled.delete(id)
+    this.fillSoon()
+  }
+
+  /** Reads the text of pages that have none yet, one at a time, off the hot path. */
+  private fillSoon(): void {
+    if (!this.reconciled || this.disposed || this.filling || this.unfilled.size === 0) return
+    this.filling = (async () => {
+      while (!this.disposed) {
+        const next = this.unfilled.values().next()
+        if (next.done) break
+        const id = next.value
+        this.unfilled.delete(id)
+        if (this.cache.has(id) || !this.docs.has(id)) continue
+        await yieldToEventLoop()
+        await this.refreshPage(id).catch(() => undefined)
+      }
+    })().finally(() => {
+      this.filling = null
+      this.fillSoon() // anything that arrived while the last read was finishing
+    })
+  }
+
+  /** Resolves once pages added since the last reconcile have been read (used by tests). */
+  async idle(): Promise<void> {
+    while (this.filling) await this.filling
   }
 
   private async stampOf(id: string): Promise<[number, number] | null> {
@@ -176,18 +237,32 @@ export class SearchIndex {
     return [scene?.mtimeMs ?? 0, notes?.mtimeMs ?? 0]
   }
 
-  /** Called after a save: the renderer already sent the drawing text, so no re-parse. */
+  /**
+   * Called after an in-app save with the scene JSON that was written. The text is
+   * extracted here, exactly as `reconcile` does, so the index never depends on
+   * what the renderer thinks the text is.
+   */
+  async sceneSaved(id: string, scene: string): Promise<void> {
+    await this.update(id, { drawing: extractDrawingText(scene) })
+  }
+
+  /** Records a page's text (already extracted) and the file stamps it belongs to. */
   async update(id: string, change: { drawing?: string; notes?: string }): Promise<void> {
+    // The text is applied synchronously, so overlapping updates (a drawing save and a
+    // notes save, or two quick saves) never undo each other.
     const prev = this.cache.get(id) ?? { notes: '', drawing: '', stamp: [0, 0] as [number, number] }
     const next: Cached = {
       notes: (change.notes ?? prev.notes).slice(0, MAX_TEXT),
       drawing: (change.drawing ?? prev.drawing).slice(0, MAX_TEXT),
-      stamp: (await this.stampOf(id)) ?? prev.stamp,
+      stamp: prev.stamp,
     }
     this.cache.set(id, next)
     const doc = this.docs.get(id)
     if (doc) this.put({ ...doc, notes: next.notes, drawing: next.drawing })
     this.scheduleSave()
+    const stamp = await this.stampOf(id)
+    // A newer update has replaced this entry: it records its own stamp.
+    if (stamp && this.cache.get(id) === next) next.stamp = stamp
   }
 
   /**
@@ -216,10 +291,9 @@ export class SearchIndex {
       changed = true
       if (i % 20 === 19) await yieldToEventLoop()
     }
-    if (changed) {
-      this.syncTree(this.lib.model)
-      this.scheduleSave()
-    }
+    if (changed) this.scheduleSave()
+    this.reconciled = true
+    this.syncTree(this.lib.model) // also starts filling pages that appeared meanwhile
   }
 
   /** Re-reads one page's files (after another app or a sync tool changed them). */

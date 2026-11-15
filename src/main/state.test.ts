@@ -13,9 +13,16 @@ describe('parseState', () => {
 
   it('keeps valid bounds, the maximized flag and the library path', () => {
     const bounds = { x: 10, y: 20, width: 1200, height: 800 }
-    const state = parseState({ window: { bounds, maximized: true }, libraryPath: 'D:\\Notes' })
+    const notes = process.platform === 'win32' ? 'D:\\Notes' : '/home/me/Notes'
+    const state = parseState({ window: { bounds, maximized: true }, libraryPath: notes })
     expect(state.window).toEqual({ bounds, maximized: true })
-    expect(state.libraryPath).toBe('D:\\Notes')
+    expect(state.libraryPath).toBe(notes)
+  })
+
+  it('drops a relative library path', () => {
+    expect(parseState({ libraryPath: 'perf-lib' }).libraryPath).toBeNull()
+    expect(parseState({ libraryPath: '../Notes' }).libraryPath).toBeNull()
+    expect(parseState({ libraryPath: '' }).libraryPath).toBeNull()
   })
 })
 

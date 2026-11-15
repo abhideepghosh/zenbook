@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, isAbsolute } from 'node:path'
 import { z } from 'zod'
 import type { Prefs } from '../shared/api'
 
@@ -84,8 +84,12 @@ export function parseState(raw: unknown): UiState {
       ...(bounds && { bounds }),
       ...(window.maximized === true && { maximized: true }),
     },
+    // Only absolute paths: a relative one would resolve against whatever the working
+    // directory happens to be, i.e. some other folder.
     libraryPath:
-      typeof source.libraryPath === 'string' && source.libraryPath ? source.libraryPath : null,
+      typeof source.libraryPath === 'string' && isAbsolute(source.libraryPath)
+        ? source.libraryPath
+        : null,
     prefs: parsePrefs(source.prefs),
   }
 }

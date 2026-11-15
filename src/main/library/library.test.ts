@@ -6,14 +6,54 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, isAbsolute, join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Library } from './library'
 import { emptyScene } from './model'
+
+// Simulated disk failures. `rename` and `open` (used by atomicWrite) consult these
+// hooks; by default everything passes through to the real file system.
+const faults = vi.hoisted(() => ({
+  rename: null as null | ((from: string, to: string) => boolean),
+  write: null as null | ((path: string) => boolean),
+  /** Returns an error code to fail reading this path with, or null. */
+  read: null as null | ((path: string) => string | null),
+}))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const fail = (what: string) => Object.assign(new Error(`EIO: simulated ${what}`), { code: 'EIO' })
+  return {
+    ...actual,
+    rename: async (from: string, to: string) => {
+      if (faults.rename?.(String(from), String(to))) throw fail('rename failure')
+      return actual.rename(from, to)
+    },
+    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+      const code = faults.read?.(String(args[0]))
+      if (code) throw Object.assign(new Error(`${code}: simulated read failure`), { code })
+      return actual.readFile(...args)
+    },
+    open: async (...args: Parameters<typeof actual.open>) => {
+      if (faults.write?.(String(args[0]))) throw fail('write failure')
+      return actual.open(...args)
+    },
+  }
+})
+
+const isHidden = (p: string) => /^..*.zb-[0-9a-f]{8}$/.test(basename(p))
+/** Every file and folder under the library, as relative paths. */
+function walk(dir = root): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const rel = relative(root, join(dir, e.name))
+    return e.isDirectory() ? [rel, ...walk(join(dir, e.name))] : [rel]
+  })
+}
 
 let root: string
 let trashed: string[]
@@ -30,6 +70,9 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.useRealTimers()
+  faults.rename = null
+  faults.write = null
+  faults.read = null
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -380,7 +423,423 @@ describe('Library: external changes', () => {
   })
 
   it('refuses a library from a newer format', async () => {
-    writeFileSync(join(root, 'zenbook.json'), JSON.stringify({ format: 99, spaces: [] }))
+    const newer = JSON.stringify({ format: 99, spaces: [] })
+    writeFileSync(join(root, 'zenbook.json'), newer)
     await expect(Library.open(root, deps)).rejects.toThrow(/newer version/)
+    expect(readFileSync(join(root, 'zenbook.json'), 'utf8')).toBe(newer) // never rewritten
+    expect(readdirSync(root)).toEqual(['zenbook.json'])
+  })
+})
+
+describe('Library: unreadable metadata is never overwritten', () => {
+  it('keeps a space.json it cannot parse, with its ID, colour and pins', async () => {
+    const { lib, space, chapter, a } = await seeded()
+    await lib.pin(a, true)
+    await lib.setColor(space, 'plum')
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    const file = join(root, 'Work', 'space.json')
+    const broken = `{ "id": "${space}", <<<<<<< merge conflict`
+    writeFileSync(file, broken)
+
+    await lib.rescan()
+    await lib.rescan() // the notice is shown once, not on every rescan
+    expect(readFileSync(file, 'utf8')).toBe(broken)
+    expect(lib.tree().spaces[0]).toMatchObject({ id: space, color: 'plum', pinned: [a] })
+    expect(lib.tree().spaces[0]?.chapters[0]?.id).toBe(chapter)
+    expect(notices).toEqual(['Couldn’t read “Work/space.json”; it was left as it is.'])
+
+    // Changes that would rewrite it are refused, and the model isn't half-changed.
+    await expect(lib.setColor(space, 'sage')).rejects.toThrow(/won’t change it/)
+    await expect(lib.create('chapter', space, 'New')).rejects.toThrow(/won’t change it/)
+    expect(readFileSync(file, 'utf8')).toBe(broken)
+    expect(existsSync(join(root, 'Work', 'New'))).toBe(false)
+    expect(lib.tree().spaces[0]?.color).toBe('plum')
+    // zenbook.json lists the Space by ID, so it isn't rewritten meanwhile either.
+    await expect(lib.create('space', null, 'Other')).rejects.toThrow(/space\.json/)
+    expect(existsSync(join(root, 'Other'))).toBe(false)
+
+    // Once it's fixed, everything carries on.
+    writeFileSync(
+      file,
+      JSON.stringify({ id: space, color: 'plum', chapters: [chapter], pinned: [a] }),
+    )
+    await lib.rescan()
+    await lib.setColor(space, 'sage')
+    expect(readJson('Work', 'space.json')).toMatchObject({ id: space, color: 'sage', pinned: [a] })
+  })
+
+  it('keeps the known IDs and page order when chapter.json breaks while open', async () => {
+    const { lib, space, chapter, a, b } = await seeded()
+    await lib.move(b, chapter, 0)
+    const file = join(root, 'Work', 'Distributed Systems', 'chapter.json')
+    writeFileSync(file, '{ not json')
+    await lib.rescan()
+    expect(readFileSync(file, 'utf8')).toBe('{ not json')
+    const c = lib.tree().spaces[0]!.chapters[0]!
+    expect(c.id).toBe(chapter)
+    expect(c.pages.map((p) => p.id)).toEqual([b, a])
+    expect(readJson('Work', 'space.json').chapters).toEqual([chapter])
+    // A new page would rewrite it: refused before anything is written.
+    await expect(lib.create('page', chapter, 'Extra')).rejects.toThrow(/chapter\.json/)
+    expect(existsSync(join(root, 'Work', 'Distributed Systems', 'Extra.excalidraw'))).toBe(false)
+    // space.json lists the chapter by ID, so it waits too.
+    await expect(lib.pin(a, true)).rejects.toThrow(/chapter\.json/)
+    expect(readJson('Work', 'space.json').pinned).toEqual([])
+    expect(lib.tree().spaces[0]?.id).toBe(space)
+  })
+
+  it('still shows a chapter whose chapter.json is unreadable on open, rewriting nothing', async () => {
+    const { lib, chapter, a, b } = await seeded()
+    await lib.close()
+    const file = join(root, 'Work', 'Distributed Systems', 'chapter.json')
+    writeFileSync(file, '')
+    const again = await Library.open(root, deps)
+    const notices: string[] = []
+    again.on('notice', (m) => notices.push(m))
+    again.replayNotices()
+    expect(readFileSync(file, 'utf8')).toBe('')
+    const pages = again.tree().spaces[0]!.chapters[0]!.pages
+    expect(pages.map((p) => p.id).sort()).toEqual([a, b].sort()) // recovered from the scenes
+    // space.json isn't rewritten either, so the chapter's real ID keeps its place.
+    expect(readJson('Work', 'space.json').chapters).toEqual([chapter])
+    expect(notices).toEqual([
+      'Couldn’t read “Work/Distributed Systems/chapter.json”; it was left as it is.',
+    ])
+  })
+
+  it.each([
+    ['invalid JSON', '{"format": 1, "spa'],
+    ['an empty file', ''],
+    ['JSON that is not an object', '[1, 2]'],
+  ])('rebuilds a damaged zenbook.json (%s), keeping the old one aside', async (_, broken) => {
+    const { lib, space } = await seeded()
+    const other = await lib.create('space', null, 'Other')
+    await lib.close()
+    const file = join(root, 'zenbook.json')
+    writeFileSync(file, broken)
+
+    const again = await Library.open(root, deps) // opens, rather than locking the user out
+    const notices: string[] = []
+    again.on('notice', (m) => notices.push(m))
+    again.replayNotices()
+    expect(
+      again
+        .tree()
+        .spaces.map((s) => s.id)
+        .sort(),
+    ).toEqual([space, other].sort())
+    expect(readJson('zenbook.json')).toMatchObject({ format: 1 })
+    const kept = readdirSync(root).filter((n) => /^zenbook\.json\.corrupt-\d{8}-\d{6}$/.test(n))
+    expect(kept).toHaveLength(1)
+    expect(readFileSync(join(root, kept[0]!), 'utf8')).toBe(broken)
+    expect(notices).toEqual([
+      `“zenbook.json” was damaged, so Zenbook rebuilt it. The old file was kept as “${kept[0]}”.`,
+    ])
+    // Structural edits carry on as normal.
+    await again.create('space', null, 'Third')
+  })
+
+  it('rides out a sync tool that truncates zenbook.json and then writes it', async () => {
+    const { lib } = await seeded()
+    const file = join(root, 'zenbook.json')
+    const good = readFileSync(file, 'utf8')
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    writeFileSync(file, '')
+    setTimeout(() => writeFileSync(file, good), 60)
+    await lib.rescan()
+    expect(readdirSync(root).filter((n) => n.includes('corrupt'))).toEqual([])
+    expect(readFileSync(file, 'utf8')).toBe(good)
+    expect(notices).toEqual([])
+  })
+
+  it('rides out a truncated space.json the same way', async () => {
+    const { lib, space } = await seeded()
+    await lib.setColor(space, 'plum')
+    const file = join(root, 'Work', 'space.json')
+    const good = readFileSync(file, 'utf8')
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    writeFileSync(file, '')
+    setTimeout(() => writeFileSync(file, good), 60)
+    await lib.rescan()
+    expect(notices).toEqual([])
+    await lib.setColor(space, 'sage') // not treated as unreadable
+    expect(readJson('Work', 'space.json').color).toBe('sage')
+  })
+
+  it('refuses to open a zenbook.json that is locked, and says so', async () => {
+    const { lib, space } = await seeded()
+    faults.read = (p) => (basename(p) === 'zenbook.json' ? 'EBUSY' : null)
+    await expect(lib.rescan()).rejects.toThrow(/“zenbook\.json” is in use by another program/)
+    expect(lib.tree().spaces[0]?.id).toBe(space) // the last good model stays
+    // Nothing structural is written while its format can't be checked.
+    await expect(lib.create('space', null, 'More')).rejects.toThrow(/zenbook\.json/)
+    expect(existsSync(join(root, 'More'))).toBe(false)
+    await expect(Library.open(root, deps)).rejects.toThrow(/in use by another program/)
+    faults.read = (p) => (basename(p) === 'zenbook.json' ? 'EACCES' : null)
+    await expect(Library.open(root, deps)).rejects.toThrow(/isn’t allowed to read/)
+    faults.read = null
+    expect(readdirSync(root).filter((n) => n.includes('corrupt'))).toEqual([])
+    await lib.rescan()
+    await lib.create('space', null, 'More')
+  })
+
+  it('does not blame another program when zenbook.json is unreadable for other reasons', async () => {
+    const { lib } = await seeded()
+    await lib.close()
+    rmSync(join(root, 'zenbook.json'))
+    mkdirSync(join(root, 'zenbook.json')) // a folder where the file should be
+    const err = await Library.open(root, deps).catch((e: unknown) => e)
+    expect(String(err)).toMatch(/Couldn’t read “zenbook\.json” \(.*EISDIR/)
+    expect(String(err)).not.toMatch(/another program/)
+  })
+
+  it('reports a failed background rescan once', async () => {
+    const { lib } = await seeded()
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    writeFileSync(join(root, 'zenbook.json'), JSON.stringify({ format: 99, spaces: [] }))
+    for (let i = 0; i < 2; i++) {
+      await lib.rescan().catch((e: unknown) => lib.reportRescanFailure(e))
+    }
+    expect(notices).toEqual([expect.stringMatching(/newer version/)])
+  })
+})
+
+describe('Library: metadata write-back is best effort', () => {
+  it('a failed write-back neither fails the scan nor repeats its notice', async () => {
+    const { lib, a } = await seeded()
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    // Someone deletes chapter.json; the scan wants to write it back, but can't.
+    rmSync(join(root, 'Work', 'Distributed Systems', 'chapter.json'))
+    faults.write = (p) => basename(p).startsWith('chapter.json')
+    await lib.rescan()
+    await lib.rescan()
+    expect(lib.tree().spaces[0]?.chapters[0]?.pages.map((p) => p.id)).toContain(a)
+    expect(notices).toEqual([
+      expect.stringMatching(/^Couldn’t update “Work\/Distributed Systems\/chapter\.json”/),
+    ])
+    // Opening still works too.
+    const again = await Library.open(root, deps)
+    expect(again.tree().spaces[0]?.chapters[0]?.pages).toHaveLength(2)
+    faults.write = null
+    await lib.rescan()
+    expect(readJson('Work', 'Distributed Systems', 'chapter.json').pages).toHaveLength(2)
+  })
+})
+
+describe('Library: failed deletes never strand files under hidden names', () => {
+  const pageDir = () => join(root, 'Work', 'Distributed Systems')
+
+  it('a locked notes file: nothing is trashed and the page stays whole', async () => {
+    const { lib, a } = await seeded()
+    await lib.saveNotes(a, 'keep me')
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    faults.rename = (from) => basename(from) === 'Lecture 1.md'
+    await lib.remove(a)
+    await lib.commitAllRemovals()
+    expect(trashed).toEqual([])
+    expect(walk().filter(isHidden)).toEqual([])
+    expect(readdirSync(pageDir())).toContain('Lecture 1.excalidraw')
+    expect(lib.tree().spaces[0]?.chapters[0]?.pages.map((p) => p.id)).toContain(a)
+    expect(notices).toEqual([
+      expect.stringMatching(/^Couldn’t delete “Lecture 1”: .*back in the sidebar/),
+    ])
+  })
+
+  it('a drawing that could not be renamed back is restored when the notes are locked', async () => {
+    const { lib, a } = await seeded()
+    await lib.saveNotes(a, 'keep me')
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    let backAttempts = 0
+    faults.rename = (from, to) => {
+      if (basename(from) === 'Lecture 1.md') return true // the notes are locked
+      // The drawing's first rename back fails; putting it back afterwards works.
+      if (isHidden(from) && basename(to) === 'Lecture 1.excalidraw') return backAttempts++ === 0
+      return false
+    }
+    await lib.remove(a)
+    await lib.commitAllRemovals()
+    expect(trashed).toEqual([])
+    expect(walk().filter(isHidden)).toEqual([])
+    expect(readdirSync(pageDir()).sort()).toEqual([
+      'Lecture 1.excalidraw',
+      'Lecture 1.md',
+      'Lecture 2.excalidraw',
+      'chapter.json',
+    ])
+    expect(lib.tree().spaces[0]?.chapters[0]?.pages.map((p) => p.id)).toContain(a)
+    expect(notices).toEqual([expect.stringMatching(/back in the sidebar/)])
+  })
+
+  it('if the original name cannot be restored, uses a visible “(could not delete)” name', async () => {
+    const { lib, a } = await seeded()
+    await lib.saveNotes(a, 'keep me')
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    faults.rename = (from, to) =>
+      basename(from) === 'Lecture 1.md' ||
+      (isHidden(from) && basename(to) === 'Lecture 1.excalidraw')
+    await lib.remove(a)
+    await lib.commitAllRemovals()
+    expect(trashed).toEqual([])
+    expect(walk().filter(isHidden)).toEqual([])
+    expect(readdirSync(pageDir())).toContain('Lecture 1 (could not delete).excalidraw')
+    // Same page (the ID is embedded in the drawing), under its new name.
+    const page = lib.tree().spaces[0]?.chapters[0]?.pages.find((p) => p.id === a)
+    expect(page?.name).toBe('Lecture 1 (could not delete)')
+    expect(notices).toEqual([
+      expect.stringMatching(/is now called “Lecture 1 \(could not delete\)\.excalidraw”/),
+    ])
+  })
+
+  it('a Space whose trash fails is put back under its own name', async () => {
+    const lib = await Library.open(root, {
+      trash: async () => {
+        throw new Error('no trash here')
+      },
+    })
+    writeFileSync(join(root, '.trash'), 'a file where the fallback folder should go')
+    const s = await lib.create('space', null, 'Temp')
+    let back = 0
+    faults.rename = (from, to) => isHidden(from) && basename(to) === 'Temp' && back++ === 0
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    await lib.remove(s)
+    await lib.commitAllRemovals()
+    expect(walk().filter(isHidden)).toEqual([])
+    expect(existsSync(join(root, 'Temp', 'space.json'))).toBe(true)
+    expect(lib.tree().spaces.map((x) => x.id)).toEqual([s])
+    expect(notices).toEqual([
+      expect.stringMatching(/^Couldn’t delete “Temp”: no trash here\. It’s back/),
+    ])
+  })
+
+  it('says so when part of a page was deleted and part was not', async () => {
+    const lib = await Library.open(root, {
+      trash: async (path: string) => {
+        if (path.endsWith('.md')) throw new Error('no trash here')
+        trashed.push(path)
+        rmSync(path, { force: true })
+      },
+    })
+    const space = await lib.create('space', null, 'Work')
+    const chapter = await lib.create('chapter', space, 'Notes')
+    const page = await lib.create('page', chapter, 'Today')
+    await lib.saveNotes(page, 'left over')
+    writeFileSync(join(root, '.trash'), 'blocks the fallback folder')
+    const notices: string[] = []
+    lib.on('notice', (m) => notices.push(m))
+    const removed: string[] = []
+    lib.on('pageRemoved', (id) => removed.push(id))
+    await lib.remove(page)
+    await lib.commitAllRemovals()
+    expect(lib.tree().spaces[0]?.chapters[0]?.pages).toEqual([])
+    expect(removed).toEqual([page])
+    expect(walk().filter(isHidden)).toEqual([])
+    expect(notices).toEqual([
+      expect.stringMatching(/^Deleted “Today”, but couldn’t delete “Today\.md”: no trash here/),
+    ])
+  })
+})
+
+describe('Library: robustness of renames, moves and names', () => {
+  it('a page rename whose notes are locked moves the drawing back', async () => {
+    const { lib, a } = await seeded()
+    await lib.saveNotes(a, 'notes')
+    faults.rename = (from) => basename(from) === 'Lecture 1.md'
+    await expect(lib.rename(a, 'Raft')).rejects.toThrow()
+    faults.rename = null
+    const dir = join(root, 'Work', 'Distributed Systems')
+    expect(readdirSync(dir)).toEqual(
+      expect.arrayContaining(['Lecture 1.excalidraw', 'Lecture 1.md']),
+    )
+    expect(readdirSync(dir)).not.toContain('Raft.excalidraw')
+    expect(lib.tree().spaces[0]?.chapters[0]?.pages[0]).toMatchObject({ id: a, name: 'Lecture 1' })
+    await lib.rename(a, 'Raft')
+    expect((await lib.readPage(a)).notes).toBe('notes')
+  })
+
+  it('reads a move index against the visible siblings (pending deletions are hidden)', async () => {
+    const { lib, chapter, a, b } = await seeded()
+    const c = await lib.create('page', chapter, 'Lecture 3')
+    const d = await lib.create('page', chapter, 'Lecture 4')
+    await lib.remove(b) // hidden: the renderer sees [a, c, d]
+    // Drag a after c: the renderer computes index 1 in [c, d].
+    await lib.move(a, chapter, 1)
+    expect(lib.tree().spaces[0]?.chapters[0]?.pages.map((p) => p.id)).toEqual([c, a, d])
+    await lib.undoRemove(b)
+    expect(lib.tree().spaces[0]?.chapters[0]?.pages.map((p) => p.id)).toEqual([b, c, a, d])
+    // And to the end, past a hidden last page.
+    await lib.remove(d)
+    await lib.move(b, chapter, 2)
+    await lib.undoRemove(d)
+    expect(lib.tree().spaces[0]?.chapters[0]?.pages.map((p) => p.id)).toEqual([c, a, d, b])
+  })
+
+  it('a conflict copy of a page with a long name is still flagged as a conflict', async () => {
+    const { lib, chapter } = await seeded()
+    const long = await lib.create('page', chapter, 'L'.repeat(115))
+    const copy = await lib.saveConflictCopy(long, emptyScene(long), '')
+    const page = lib.tree().spaces[0]!.chapters[0]!.pages.find((p) => p.id === copy)
+    expect(page?.conflict).toBe(true)
+    expect(page?.name).toMatch(/\(conflict \d{4}-\d{2}-\d{2} \d{4}\)$/)
+  })
+
+  it('maps watcher paths to pages in any letter case on Windows and macOS', async () => {
+    const { lib, a } = await seeded()
+    const md = join(root, 'Work', 'Distributed Systems', 'Lecture 1.md')
+    expect(lib.pageIdForPath(md)).toBe(a)
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      expect(lib.pageIdForPath(md.toUpperCase())).toBe(a)
+    }
+    await lib.rename(a, 'Raft')
+    expect(lib.pageIdForPath(md)).toBeNull()
+    expect(lib.pageIdForPath(join(root, 'Work', 'Distributed Systems', 'Raft.excalidraw'))).toBe(a)
+  })
+
+  it('resolves a relative library root to an absolute one', async () => {
+    const cwd = process.cwd()
+    process.chdir(tmpdir())
+    try {
+      const lib = await Library.open(basename(root), deps)
+      expect(isAbsolute(lib.root)).toBe(true)
+      expect(realpathSync(lib.root)).toBe(realpathSync(root))
+      const space = await lib.create('space', null, 'Work')
+      expect(lib.pathOf(space)).toBe(join(lib.root, 'Work'))
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+})
+
+describe('Library: stale temp files', () => {
+  it('removes only old temp files that match Zenbook’s own naming', async () => {
+    const { lib } = await seeded()
+    const dir = join(root, 'Work', 'Distributed Systems')
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    const files = {
+      stale: join(dir, 'Lecture 1.excalidraw.deadbeef.tmp'),
+      staleMeta: join(root, 'Work', 'space.json.0a1b2c3d.tmp'),
+      fresh: join(dir, 'Lecture 2.excalidraw.cafebabe.tmp'),
+      notOurs: join(dir, 'report.tmp'),
+      notOursEither: join(dir, 'video.mp4.deadbeef.tmp'),
+      user: join(dir, 'Lecture 1.excalidraw.deadbeef.tmp.bak'),
+    }
+    for (const path of Object.values(files)) writeFileSync(path, 'x')
+    for (const key of ['stale', 'staleMeta', 'notOurs', 'notOursEither', 'user'] as const) {
+      utimesSync(files[key], old, old)
+    }
+    expect(await lib.sweepTempFiles()).toBe(2)
+    expect(existsSync(files.stale)).toBe(false)
+    expect(existsSync(files.staleMeta)).toBe(false)
+    for (const key of ['fresh', 'notOurs', 'notOursEither', 'user'] as const) {
+      expect(existsSync(files[key])).toBe(true)
+    }
   })
 })

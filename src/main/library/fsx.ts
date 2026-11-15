@@ -42,21 +42,33 @@ export async function renameWithRetry(from: string, to: string): Promise<void> {
  */
 export async function atomicWrite(path: string, data: string | Uint8Array): Promise<void> {
   const tmp = `${path}.${randomBytes(4).toString('hex')}.tmp`
-  const handle = await open(tmp, 'w')
   try {
-    await handle.writeFile(data)
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-  try {
+    const handle = await open(tmp, 'w')
+    try {
+      await handle.writeFile(data)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
     await renameWithRetry(tmp, path)
   } catch (err) {
-    await rm(tmp, { force: true })
+    // A full disk, a lock or a vanished folder: never leave the temp file behind.
+    await rm(tmp, { force: true }).catch(() => undefined)
     throw err
   }
 }
 
+/** Temp files written by atomicWrite: "<name>.<ext>.<8 hex>.tmp", for the files Zenbook writes. */
+export const TEMP_FILE =
+  /^.+\.(?:excalidraw|md|json|excalidrawlib|png|jpg|gif|webp|svg|bmp|avif|ico|bin)\.[0-9a-f]{8}\.tmp$/i
+
+/** True when an error means "there is nothing there" (as opposed to "can't read it"). */
+export function isMissingError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code
+  return code === 'ENOENT' || code === 'ENOTDIR'
+}
+
+/** Lenient read: null when the file is missing or can't be read. Never use it to decide to overwrite. */
 export async function readText(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8')
@@ -65,13 +77,86 @@ export async function readText(path: string): Promise<string | null> {
   }
 }
 
-export async function readJson(path: string): Promise<unknown> {
-  const text = await readText(path)
-  if (text === null) return null
+/** readFile with a short backoff for transient Windows locks (antivirus, indexers, sync tools). */
+export async function readFileWithRetry(path: string): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await readFile(path, 'utf8')
+    } catch (err) {
+      if (!isLockError(err) || attempt >= 4) throw err
+      await sleep(25 * 2 ** attempt)
+    }
+  }
+}
+
+/** Strict read: null only when the file is missing; any other error throws. */
+export async function readTextStrict(path: string): Promise<string | null> {
   try {
-    return JSON.parse(text)
-  } catch {
-    return null
+    return await readFileWithRetry(path)
+  } catch (err) {
+    if (isMissingError(err)) return null
+    throw err
+  }
+}
+
+export type JsonRead =
+  | { status: 'ok'; value: Record<string, unknown> }
+  | { status: 'missing' }
+  /**
+   * `corrupt`: the file was read but isn't a JSON object (invalid, empty, an array…).
+   * Otherwise the file couldn't be read at all (a lock, permissions, a folder…).
+   */
+  | { status: 'unreadable'; error: unknown; corrupt: boolean }
+
+/** How long to wait before re-reading a damaged file: sync tools truncate, then write. */
+export const CORRUPT_REREAD_MS = 250
+
+function parseObject(text: string): JsonRead {
+  try {
+    const value: unknown = JSON.parse(text)
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      return { status: 'ok', value: value as Record<string, unknown> }
+    }
+    return { status: 'unreadable', error: new Error('Not a JSON object'), corrupt: true }
+  } catch (error) {
+    return { status: 'unreadable', error, corrupt: true }
+  }
+}
+
+async function readOnce(path: string): Promise<JsonRead> {
+  let text: string
+  try {
+    text = await readFileWithRetry(path)
+  } catch (error) {
+    return isMissingError(error)
+      ? { status: 'missing' }
+      : { status: 'unreadable', error, corrupt: false }
+  }
+  return parseObject(text)
+}
+
+/**
+ * Strict read of a metadata file. Only a missing file is "missing": a locked file,
+ * invalid JSON or JSON that isn't an object is "unreadable", and must not be
+ * replaced blindly, because it may hold IDs, order, colours and pins we can't see.
+ * A damaged file is read a second time after a short pause, which rides out a sync
+ * tool that truncates a file and then writes it.
+ */
+export async function readJsonFile(path: string): Promise<JsonRead> {
+  const first = await readOnce(path)
+  if (first.status !== 'unreadable' || !first.corrupt) return first
+  await sleep(CORRUPT_REREAD_MS)
+  return readOnce(path)
+}
+
+/** Strict existence check: true/false only when we know; other errors (EPERM…) throw. */
+export async function isMissing(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return false
+  } catch (err) {
+    if (isMissingError(err)) return true
+    throw err
   }
 }
 
