@@ -46,6 +46,12 @@ jobs:
           # Windows signing (SignPath, Azure Trusted Signing or a .pfx): optional.
           WIN_CSC_LINK: ${{ secrets.WIN_CERT_P12_BASE64 }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+        shell: bash
         run: |
+          # A missing secret arrives as an empty string, and electron-builder reads an
+          # empty CSC_LINK as a path (the repo folder) and fails. Unset the empty ones.
+          for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then unset "$v"; fi
+          done
           npm run build
           npx electron-builder --publish always

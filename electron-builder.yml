@@ -38,6 +38,9 @@ win:
 nsis:
   oneClick: true
   perMachine: false
+  # One installer per architecture, not an extra one bundling both (twice the size).
+  # The updater picks the file whose name matches process.arch.
+  buildUniversalInstaller: false
   deleteAppDataOnUninstall: false # never touch the user's notebook or settings
 
 # Per-architecture builds (never universal) keep each download half the size.
